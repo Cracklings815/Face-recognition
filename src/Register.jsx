@@ -215,29 +215,40 @@ const Registration = () => {
                 <label htmlFor="sex" className="block text-sm font-medium text-gray-700">
                   Sex
                 </label>
-                <input
-                  type="text"
+                <select
                   id="sex"
                   name="sex"
-                  value={formData.religion}
+                  value={formData.sex}
                   onChange={handleInputChange}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required
-                />
+                >
+                  <option value="">Select Sex</option>
+                  <option value="male">Male</option>
+                  <option value="female">Female</option>
+                </select>
               </div>
+
               <div className="space-y-2">
                 <label htmlFor="gender" className="block text-sm font-medium text-gray-700">
                   Gender
                 </label>
-                <input
+                <select
                   type="text"
                   id="gender"
                   name="gender"
-                  value={formData.religion}
+                  value={formData.gender}
                   onChange={handleInputChange}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required
-                />
+                 >
+                  <option value = "">Select Gender</option>
+                  <option value = "Straight">Straight</option>
+                  <option value = "Transgender">Transgender</option>
+                  <option value = "Non-binary">Non-binary</option>
+                  <option value = "Prefer not to say">Prefer not to say</option>
+                  
+                </select>
               </div>
               <div className="space-y-2">
                 <label htmlFor="religion" className="block text-sm font-medium text-gray-700">
