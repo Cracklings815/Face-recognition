@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from "react-router-dom";
 
 const FingerprintScanner = () => {
   const [status, setStatus] = useState("Place your finger on the scanner.");
@@ -14,12 +15,12 @@ const FingerprintScanner = () => {
 
     setStatus("Scanning...");
     setTimeout(() => {
-      const isSuccess = Math.random() > 0.5; // Randomize success for demo purposes
+      const isSuccess = Math.random() > 0.5; //!demo
       if (isSuccess) {
         setPopupMessage("Attendance marked successfully!");
-        setPopupColor("bg-green-500"); // Success color
+        setPopupColor("bg-green-500"); //green color
         setStatus("Attendance marked successfully!");
-        setFailedAttempts(0); // Reset failed attempts on success
+        setFailedAttempts(0); //reset failed attempt on success
       } else {
         setPopupMessage("Failed to mark attendance. Try again.");
         setPopupColor("bg-red-500"); // Failure color
@@ -73,13 +74,12 @@ const FingerprintScanner = () => {
       {failedAttempts >= 3 && (
         <p className="mt-6 text-center text-sm">
           Don't have an account?{" "}
-          <a
-            href="#"
+          <Link
+            to="/register"
             className="text-blue-500 underline hover:text-blue-600"
-            onClick={() => alert("Redirecting to registration...")} //! ari dapit i add ang link para adto pikas site
           >
             Register
-          </a>
+          </Link>
         </p>
       )}
     </div>
