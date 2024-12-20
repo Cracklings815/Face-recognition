@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 const FingerprintScanner = () => {
   const [status, setStatus] = useState("Place your finger on the scanner.");
@@ -7,6 +7,7 @@ const FingerprintScanner = () => {
   const [popupMessage, setPopupMessage] = useState("");
   const [popupColor, setPopupColor] = useState("bg-gray-200");
   const [failedAttempts, setFailedAttempts] = useState(3); // Track failed attempts
+  const navigate = useNavigate(); // React Router's navigation hook
 
   const handleScan = () => {
     setPopupMessage("Scanning...");
@@ -15,12 +16,17 @@ const FingerprintScanner = () => {
 
     setStatus("Scanning...");
     setTimeout(() => {
-      const isSuccess = Math.random() > 0.5; //!demo
+      const isSuccess = Math.random() > 0.5; // Demo: Random success/failure
       if (isSuccess) {
         setPopupMessage("Attendance marked successfully!");
-        setPopupColor("bg-green-500"); //green color
+        setPopupColor("bg-green-500"); // Success color
         setStatus("Attendance marked successfully!");
-        setFailedAttempts(0); //reset failed attempt on success
+        setFailedAttempts(0); // Reset failed attempts on success
+
+        // Redirect to /success after a short delay
+        setTimeout(() => {
+          navigate("/success");
+        }, 2000);
       } else {
         setPopupMessage("Failed to mark attendance. Try again.");
         setPopupColor("bg-red-500"); // Failure color
