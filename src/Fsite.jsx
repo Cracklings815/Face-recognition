@@ -6,7 +6,7 @@ const FingerprintScanner = () => {
   const [isPopupVisible, setPopupVisible] = useState(false);
   const [popupMessage, setPopupMessage] = useState("");
   const [popupColor, setPopupColor] = useState("bg-gray-200");
-  const [failedAttempts, setFailedAttempts] = useState(3); // Track failed attempts
+  const [failedAttempts, setFailedAttempts] = useState(0); // Track failed attempts
   const navigate = useNavigate(); // React Router's navigation hook
 
   const handleScan = () => {
@@ -18,9 +18,9 @@ const FingerprintScanner = () => {
     setTimeout(() => {
       const isSuccess = Math.random() > 0.5; // Demo: Random success/failure
       if (isSuccess) {
-        setPopupMessage("Attendance marked successfully!");
+        setPopupMessage("Login Successfully!");
         setPopupColor("bg-green-500"); // Success color
-        setStatus("Attendance marked successfully!");
+        setStatus("Login Successfully!");
         setFailedAttempts(0); // Reset failed attempts on success
 
         // Redirect to /success after a short delay
@@ -28,9 +28,9 @@ const FingerprintScanner = () => {
           navigate("/success");
         }, 2000);
       } else {
-        setPopupMessage("Failed to mark attendance. Try again.");
+        setPopupMessage("Login Failed! Try again.");
         setPopupColor("bg-red-500"); // Failure color
-        setStatus("Failed to mark attendance.");
+        setStatus("Login Failed!");
         setFailedAttempts((prev) => prev + 1); // Increment failed attempts
       }
 
@@ -84,7 +84,7 @@ const FingerprintScanner = () => {
             to="/register"
             className="text-blue-500 underline hover:text-blue-600"
           >
-            Register
+            Register Here
           </Link>
         </p>
       )}
