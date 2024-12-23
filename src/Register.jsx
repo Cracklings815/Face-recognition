@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Camera, Upload, Fingerprint, Save, ArrowLeft } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Camera, Upload, Save, ArrowLeft, X } from 'lucide-react';
 
 const Registration = () => {
   const [formData, setFormData] = useState({
@@ -22,20 +23,32 @@ const Registration = () => {
       name: '',
       relationship: '',
       phoneNumber: ''
-  },
-    
+    }
   });
 
+  const [popupMessage, setPopupMessage] = useState("");
+  const [popupColor, setPopupColor] = useState("");
+  const navigate = useNavigate();
   const [profileImage, setProfileImage] = useState(null);
-  const [rightThumbprint, setRightThumbprint] = useState(null);
-  const [leftThumbprint, setLeftThumbprint] = useState(null);
+  const [isCameraModalOpen, setIsCameraModalOpen] = useState(false);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
+    if (name.startsWith('emergency')) {
+      const field = name.replace('emergency', '').toLowerCase();
+      setFormData(prev => ({
+        ...prev,
+        emergencyContact: {
+          ...prev.emergencyContact,
+          [field]: value
+        }
+      }));
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        [name]: value
+      }));
+    }
   };
 
   const handleProfileImageUpload = (e) => {
@@ -49,23 +62,164 @@ const Registration = () => {
     }
   };
 
-  const handleRightThumbprint = () => {
-    setRightThumbprint('/api/placeholder/150/150');
-  };
-
-  const handleLeftThumbprint = () => {
-    setLeftThumbprint('/api/placeholder/150/150');
-  };
-
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    console.log('Form submitted:', { 
-      formData, 
-      profileImage, 
-      rightThumbprint,
-      leftThumbprint 
+    
+    // Create FormData object to handle file upload
+    const formDataToSend = new FormData();
+    
+    // Append all form fields
+    Object.keys(formData).forEach(key => {
+      if (key !== 'emergencyContact') {
+        formDataToSend.append(key, formData[key]);
+      }
     });
+    
+    // Append emergency contact fields
+    formDataToSend.append('emergencyName', formData.emergencyContact.name);
+    formDataToSend.append('emergencyRelationship', formData.emergencyContact.relationship);
+    formDataToSend.append('emergencyPhone', formData.emergencyContact.phoneNumber);
+    
+    // If there's a profile image, append it
+    if (profileImage) {
+      // Convert base64 to blob
+      const response = await fetch(profileImage);
+      const blob = await response.blob();
+      formDataToSend.append('profileImage', blob, `${formData.firstName}_${formData.middleName}_${formData.lastName}.jpg`);
+    }
+    else
+    {
+      alert('Error, No Profile Picture!');
+    }
+    
+    try {
+      const response = await fetch('http://localhost:3000/api/register', {
+        method: 'POST',
+        body: formDataToSend,
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const result = await response.json();
+      if (result.success) {
+        setPopupMessage("Registered Successfully! Redirecting to Login Page...");
+        setPopupColor("bg-blue-500");
+
+        setTimeout(() => {
+          navigate('/');  // Redirect to the login page ("/" route)
+        }, 3000);
+        
+      } else {
+
+        alert('Registration failed: ' + (result.message || 'Please try again.'));
+      }
+    } catch (error) {
+      console.error('Error submitting form:', error);
+      alert('An error occurred. Please try again.');
+    }
   };
+
+  // Camera Modal Component
+const CameraModal = ({ isOpen, onClose, onCapture }) => {
+  const videoRef = React.useRef(null);
+  const streamRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (isOpen) {
+      startCamera();
+    } else {
+      stopCamera();
+    }
+    return () => {
+      stopCamera();
+    };
+  }, [isOpen]);
+
+  const startCamera = async () => {
+    try {
+      const mediaStream = await navigator.mediaDevices.getUserMedia({ 
+        video: true 
+      });
+      streamRef.current = mediaStream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = mediaStream;
+      }
+    } catch (err) {
+      console.error("Error accessing camera:", err);
+      alert("Unable to access camera. Please ensure you've granted camera permissions.");
+      onClose();
+    }
+  };
+
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+  };
+
+  const handleCapture = () => {
+    if (videoRef.current) {
+      const canvas = document.createElement('canvas');
+      canvas.width = videoRef.current.videoWidth;
+      canvas.height = videoRef.current.videoHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(videoRef.current, 0, 0);
+      const imageDataURL = canvas.toDataURL('image/jpeg');
+      onCapture(imageDataURL);
+      onClose();
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
+      <div className="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4">
+        <div className="p-4 border-b border-gray-200 flex justify-between items-center">
+          <h3 className="text-lg font-semibold">Take a Picture</h3>
+          <button
+            onClick={onClose}
+            className="text-gray-500 hover:text-gray-700"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        
+        <div className="p-4">
+          <div className="relative bg-black rounded-lg overflow-hidden aspect-video">
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              className="w-full h-full object-cover"
+            />
+          </div>
+        </div>
+        
+        <div className="p-4 border-t border-gray-200 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleCapture}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 text-sm"
+          >
+            <Camera className="w-4 h-4" />
+            Capture Photo
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
   const handleBack = () => {
     window.history.back();
@@ -88,7 +242,7 @@ const Registration = () => {
         </button>
 
         <div className="p-4 border-b border-gray-200 flex justify-center">
-          <h2 className="text-xl font-bold">Biometric Registration Form</h2>
+          <h2 className="text-xl font-bold">Face Recognition Registration Form</h2>
         </div>
 
         {/* Biometric Section */}
@@ -105,7 +259,15 @@ const Registration = () => {
                   <Camera className="w-12 h-12 text-gray-400" />
                 )}
               </div>
-              <div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsCameraModalOpen(true)}
+                  className="flex items-center gap-1 bg-blue-500 text-white px-2 py-1 rounded-md hover:bg-blue-600 text-xs"
+                >
+                  <Camera className="w-3 h-3" />
+                  Take a Picture
+                </button>
                 <input
                   type="file"
                   accept="image/*"
@@ -115,52 +277,12 @@ const Registration = () => {
                 />
                 <label
                   htmlFor="profile-upload"
-                  className="flex items-center gap-1 cursor-pointer bg-blue-500 text-white px-2 py-1 rounded-md hover:bg-blue-600 text-xs"
+                  className="flex items-center gap-1 cursor-pointer bg-gray-500 text-white px-2 py-1 rounded-md hover:bg-gray-600 text-xs"
                 >
                   <Upload className="w-3 h-3" />
-                  Upload Photo
+                  Upload File
                 </label>
               </div>
-            </div>
-
-            {/* Right Thumbprint Section */}
-            <div className="flex flex-col items-center">
-              <h4 className="text-xs font-medium text-gray-700 mb-2">Right Thumbprint</h4>
-              <div className="w-32 h-32 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center mb-3">
-                {rightThumbprint ? (
-                  <img src={rightThumbprint} alt="Right Thumbprint" className="w-28 h-28" />
-                ) : (
-                  <Fingerprint className="w-12 h-12 text-gray-400" />
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={handleRightThumbprint}
-                className="flex items-center gap-1 text-xs bg-blue-500 text-white px-2 py-1 rounded-md hover:bg-blue-600"
-              >
-                <Fingerprint className="w-3 h-3" />
-                Capture Right Print
-              </button>
-            </div>
-
-            {/* Left Thumbprint Section */}
-            <div className="flex flex-col items-center">
-              <h4 className="text-xs font-medium text-gray-700 mb-2">Left Thumbprint</h4>
-              <div className="w-32 h-32 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center mb-3">
-                {leftThumbprint ? (
-                  <img src={leftThumbprint} alt="Left Thumbprint" className="w-28 h-28" />
-                ) : (
-                  <Fingerprint className="w-12 h-12 text-gray-400" />
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={handleLeftThumbprint}
-                className="flex items-center gap-1 text-xs bg-blue-500 text-white px-2 py-1 rounded-md hover:bg-blue-600"
-              >
-                <Fingerprint className="w-3 h-3" />
-                Capture Left Print
-              </button>
             </div>
           </div>
         </div>
@@ -473,6 +595,13 @@ const Registration = () => {
           </button>
         </div>
       </div>
+
+      {/* Camera Modal */}
+      <CameraModal
+        isOpen={isCameraModalOpen}
+        onClose={() => setIsCameraModalOpen(false)}
+        onCapture={(imageDataURL) => setProfileImage(imageDataURL)}
+      />
     </form>
   );
 };
