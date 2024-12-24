@@ -114,7 +114,7 @@ const FaceRecognition = ({ onSuccess }) => {
         <p className="text-center text-gray-600 mt-4">{status}</p>
       </div>
 
-      {/* Popup Message
+      {/* Popup Message */}
       {isPopupVisible && (
         <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50">
           <div
@@ -126,7 +126,7 @@ const FaceRecognition = ({ onSuccess }) => {
             )}
           </div>
         </div>
-      )} */}
+      )}
       
 
       {/* Register Message */}
