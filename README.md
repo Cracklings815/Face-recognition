@@ -10,4 +10,6 @@ Currently, two official plugins are available:
 
 - Steps on running this system
 - npms cors...
+- npm install @vladmandic/face-api
+- 
 - node backend.js
