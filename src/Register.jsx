@@ -596,6 +596,14 @@ const CameraModal = ({ isOpen, onClose, onCapture }) => {
         </div>
       </div>
 
+      {popupMessage && (
+      <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+        <div className={`${popupColor} rounded-lg shadow-lg p-8 w-96 text-center text-white transition-all duration-300`}>
+          <p className="text-2xl font-bold mb-2">{popupMessage}</p>
+        </div>
+      </div>
+    )}
+
       {/* Camera Modal */}
       <CameraModal
         isOpen={isCameraModalOpen}
@@ -603,6 +611,9 @@ const CameraModal = ({ isOpen, onClose, onCapture }) => {
         onCapture={(imageDataURL) => setProfileImage(imageDataURL)}
       />
     </form>
+
+      
+    
   );
 };
 

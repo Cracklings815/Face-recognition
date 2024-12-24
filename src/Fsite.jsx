@@ -1,3 +1,4 @@
+// need to add openCV with python + django if possible for face recognition
 import React, { useState, useRef, useEffect } from 'react';
 import { Camera } from "lucide-react";
 
