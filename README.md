@@ -10,4 +10,5 @@ Currently, two official plugins are available:
 
 - Steps on running this system
 - npms cors...
+- npm install @u4/opencv4nodejs
 - node backend.js
