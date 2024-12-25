@@ -5,6 +5,7 @@ import * as faceapi from '@vladmandic/face-api';
 const FaceRecognition = ({ onSuccess }) => {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
+  const modelsLoaded = useRef(false);  // Tracks if models are already loaded
   const [status, setStatus] = useState("Initializing face detection...");
   const [isPopupVisible, setPopupVisible] = useState(false);
   const [popupMessage, setPopupMessage] = useState("");
@@ -17,72 +18,47 @@ const FaceRecognition = ({ onSuccess }) => {
     let detectionInterval;
 
     const loadModels = async () => {
+      if (modelsLoaded.current) {
+        setDebugInfo("Models already loaded.");
+        await startVideo();
+        return;
+      }
       try {
         setStatus("Loading face recognition models...");
         setDebugInfo("Starting model loading...");
-        
+
         const modelPath = `${window.location.origin}/models`;
         console.log('Model path:', modelPath);
+
+        await faceapi.nets.tinyFaceDetector.loadFromUri(modelPath);
+        await faceapi.nets.faceLandmark68Net.loadFromUri(modelPath);
+        await faceapi.nets.faceRecognitionNet.loadFromUri(modelPath);
         
-        // Updated model files for @vladmandic/face-api
-        const modelFiles = [
-          'tiny_face_detector_model-weights_manifest.json',
-          'face_landmark_68_model-weights_manifest.json',
-          'face_recognition_model-weights_manifest.json'
-        ];
-    
-        // Check if model files are accessible
-        for (const file of modelFiles) {
-          const response = await fetch(`${modelPath}/${file}`, { method: 'HEAD' });
-          if (!response.ok) {
-            throw new Error(`Model file ${file} not found or inaccessible`);
-          }
-          setDebugInfo(prev => `${prev}\nVerified ${file} is accessible`);
-        }
-    
-        // Load models with new API
-        try {
-          await faceapi.nets.tinyFaceDetector.loadFromUri(modelPath);
-          setDebugInfo(prev => `${prev}\nTiny Face Detector model loaded`);
-    
-          await faceapi.nets.faceLandmark68Net.loadFromUri(modelPath);
-          setDebugInfo(prev => `${prev}\nFace landmark model loaded`);
-    
-          await faceapi.nets.faceRecognitionNet.loadFromUri(modelPath);
-          setDebugInfo(prev => `${prev}\nFace recognition model loaded`);
-          
-        } catch (modelError) {
-          console.error('Model loading error:', modelError);
-          setDebugInfo(prev => `${prev}\nModel loading error: ${modelError.message}`);
-          throw modelError;
-        }
-    
+        setDebugInfo("All models loaded successfully.");
         setStatus("Models loaded successfully");
-        setDebugInfo(prev => `${prev}\nAll models loaded successfully`);
+        modelsLoaded.current = true;
         await startVideo();
-        
       } catch (err) {
         console.error("Error loading models:", err);
         setStatus(`Error loading models: ${err.message}`);
-        setDebugInfo(prev => `${prev}\nFatal error: ${err.message}`);
+        setDebugInfo(`Fatal error: ${err.message}`);
       }
     };
 
     const startVideo = async () => {
       try {
-        setDebugInfo(prev => `${prev}\nRequesting camera access...`);
+        setDebugInfo("Requesting camera access...");
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: "user",
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
+            width: { ideal: 640 },
+            height: { ideal: 480 }
           }
         });
-        
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           videoRef.current.addEventListener('play', startFaceDetection);
-          setDebugInfo(prev => `${prev}\nCamera stream started`);
+          setDebugInfo("Camera stream started");
         }
         setCameraError(false);
         setStatus("Face detection active");
@@ -90,7 +66,7 @@ const FaceRecognition = ({ onSuccess }) => {
         console.error("Error accessing camera:", err);
         setCameraError(true);
         setStatus("Camera access denied. Please enable camera permissions.");
-        setDebugInfo(prev => `${prev}\nCamera error: ${err.message}`);
+        setDebugInfo(`Camera error: ${err.message}`);
       }
     };
 
@@ -109,8 +85,6 @@ const FaceRecognition = ({ onSuccess }) => {
 
         try {
           setIsProcessing(true);
-          
-          // Use TinyFaceDetector instead of MTCNN
           const detections = await faceapi
             .detectAllFaces(videoRef.current, new faceapi.TinyFaceDetectorOptions())
             .withFaceLandmarks()
@@ -119,21 +93,14 @@ const FaceRecognition = ({ onSuccess }) => {
           if (detections.length > 0) {
             const resizedDetections = faceapi.resizeResults(detections, displaySize);
             canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
-            
-            // Updated drawing utilities
             faceapi.draw.drawDetections(canvas, resizedDetections);
             faceapi.draw.drawFaceLandmarks(canvas, resizedDetections);
 
             const faceDescriptor = detections[0].descriptor;
-
             const response = await fetch('http://localhost:3000/api/recognize', {
               method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({ 
-                faceDescriptor: Array.from(faceDescriptor) 
-              }),
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ faceDescriptor: Array.from(faceDescriptor) })
             });
 
             const result = await response.json();
@@ -149,7 +116,7 @@ const FaceRecognition = ({ onSuccess }) => {
           }
         } catch (error) {
           console.error("Error in face detection:", error);
-          setDebugInfo(prev => `${prev}\nDetection error: ${error.message}`);
+          setDebugInfo(`Detection error: ${error.message}`);
         } finally {
           setIsProcessing(false);
         }
@@ -167,15 +134,14 @@ const FaceRecognition = ({ onSuccess }) => {
         tracks.forEach(track => track.stop());
       }
     };
-  }, [onSuccess, isProcessing]);
+  }, [onSuccess]);
 
-  // Rest of the component remains the same
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100">
       <div className="bg-white shadow-md rounded-lg p-6 w-96">
         <h1 className="text-3xl font-bold mb-10 text-center">Face Recognition</h1>
         <div className="flex flex-col items-center mb-4">
-          <div className="w-64 h-64 border-4 border-gray-300 rounded-lg overflow-hidden relative">
+          <div className="w-96 h-96 border-4 border-gray-300 rounded-lg overflow-hidden relative">
             <video
               ref={videoRef}
               autoPlay
