@@ -1,3 +1,4 @@
+// server.js
 import express from 'express';
 import multer from 'multer';
 import path from 'path';
@@ -6,18 +7,25 @@ import pkg from 'pg';
 import fs from 'fs';
 import cors from 'cors';
 
-// Extract Pool from pg
 const { Pool } = pkg;
-
-// Setup __dirname equivalent
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-app.use(express.json());
-app.use(cors());
 
-// Configure PostgreSQL connection
+// CORS Configuration
+const corsSite = {
+  origin: 'http://localhost:5173',
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+};
+
+app.use(cors(corsSite));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// PostgreSQL Configuration
 const pool = new Pool({
   user: 'postgres',
   host: 'localhost',
@@ -32,7 +40,7 @@ if (!fs.existsSync(uploadDir)){
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-// Configure multer for file upload
+// Multer configuration for file uploads
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     cb(null, 'uploads/');
@@ -43,20 +51,65 @@ const storage = multer.diskStorage({
     const middleName = req.body.middleName || '';
     const lastName = req.body.lastName || '';
     const fullName = `${firstName}_${middleName}_${lastName}`.replace(/\s+/g, '_').toLowerCase();
-    cb(null, `${fullName}${ext}`);
+    cb(null, `${fullName}_${Date.now()}${ext}`);
   }
 });
 
-const upload = multer({ storage: storage });
+const upload = multer({ 
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid file type. Only JPEG, PNG and WebP are allowed.'));
+    }
+  }
+});
 
-// Helper function to calculate Euclidean distance between face descriptors
-function euclideanDistance(descriptor1, descriptor2) {
-  return Math.sqrt(
-    descriptor1.reduce((sum, value, index) => {
-      const diff = value - descriptor2[index];
-      return sum + diff * diff;
-    }, 0)
-  );
+// Improved face descriptor distance calculation
+function normalizedEuclideanDistance(descriptor1, descriptor2) {
+  try {
+    console.log('Input descriptors:', {
+      desc1Length: descriptor1.length,
+      desc2Length: descriptor2.length,
+      desc1Sample: descriptor1.slice(0, 3),
+      desc2Sample: descriptor2.slice(0, 3)
+    });
+
+    // L2 normalization of descriptors
+    const norm1 = Math.sqrt(descriptor1.reduce((sum, val) => sum + val * val, 0));
+    const norm2 = Math.sqrt(descriptor2.reduce((sum, val) => sum + val * val, 0));
+    
+    console.log('Norms:', { norm1, norm2 });
+
+    if (norm1 === 0 || norm2 === 0) {
+      console.error('Zero norm detected!');
+      return Infinity;
+    }
+
+    const normalizedDesc1 = descriptor1.map(val => val / norm1);
+    const normalizedDesc2 = descriptor2.map(val => val / norm2);
+
+    const distance = Math.sqrt(
+      normalizedDesc1.reduce((sum, val, idx) => {
+        const diff = val - normalizedDesc2[idx];
+        return sum + diff * diff;
+      }, 0)
+    );
+
+    console.log('Calculated distance:', distance);
+    return distance;
+
+  } catch (error) {
+    console.error('Error in distance calculation:', error);
+    console.error('Descriptor1:', descriptor1);
+    console.error('Descriptor2:', descriptor2);
+    return Infinity;
+  }
 }
 
 // Registration endpoint
@@ -64,6 +117,11 @@ app.post('/api/register', upload.single('profileImage'), async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+
+    // Validate face descriptor
+    if (!req.body.faceDescriptor) {
+      throw new Error('Face descriptor is required');
+    }
 
     const registrationResult = await client.query(
       `INSERT INTO REGISTRATION (
@@ -97,6 +155,7 @@ app.post('/api/register', upload.single('profileImage'), async (req, res) => {
 
     const registrationId = registrationResult.rows[0].regis_id;
 
+    // Insert emergency contact information
     await client.query(
       `INSERT INTO EMERGENCY_CONTACT (
         REGIS_ID, EMER_NAME, EMER_RELATIONSHIP, EMER_PHONE_NUMBER
@@ -110,11 +169,19 @@ app.post('/api/register', upload.single('profileImage'), async (req, res) => {
     );
 
     await client.query('COMMIT');
-    res.json({ success: true, message: 'Registration completed successfully' });
+    res.json({ 
+      success: true, 
+      message: 'Registration completed successfully',
+      registrationId: registrationId
+    });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('Error during registration:', err);
-    res.status(500).json({ success: false, message: 'Registration failed' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Registration failed', 
+      error: err.message 
+    });
   } finally {
     client.release();
   }
@@ -122,59 +189,218 @@ app.post('/api/register', upload.single('profileImage'), async (req, res) => {
 
 // Face Recognition endpoint
 app.post('/api/recognize', async (req, res) => {
-  const { faceDescriptor } = req.body;
-  
+  const { faceDescriptor, detectionScore } = req.body;
+
+  if (!faceDescriptor || !Array.isArray(faceDescriptor)) {
+    return res.status(400).json({ error: 'Invalid face descriptor' });
+  }
+
   try {
-    // Query database for all registered users' face descriptors
-    const result = await pool.query('SELECT REGIS_ID, face_descriptor FROM REGISTRATION WHERE face_descriptor IS NOT NULL');
+    const result = await pool.query(
+      'SELECT REGIS_ID, face_descriptor FROM REGISTRATION WHERE face_descriptor IS NOT NULL'
+    );
     
     let bestMatch = null;
     let minDistance = Number.MAX_VALUE;
-    
-    // Compare with each registered face descriptor
-    for (const row of result.rows) {
-      const registeredDescriptor = JSON.parse(row.face_descriptor);
-      const distance = euclideanDistance(faceDescriptor, registeredDescriptor);
+    let matchConfidence = 0;
+
+    // Enhanced distance calculation function
+    function enhancedDistance(desc1, desc2) {
+      // Normalize both descriptors
+      const norm1 = Math.sqrt(desc1.reduce((sum, val) => sum + val * val, 0));
+      const norm2 = Math.sqrt(desc2.reduce((sum, val) => sum + val * val, 0));
       
-      if (distance < minDistance) {
-        minDistance = distance;
-        bestMatch = row.regis_id;
-      }
+      const normalizedDesc1 = desc1.map(val => val / norm1);
+      const normalizedDesc2 = desc2.map(val => val / norm2);
+
+      // Calculate cosine similarity
+      const dotProduct = normalizedDesc1.reduce((sum, val, idx) => sum + val * normalizedDesc2[idx], 0);
+      
+      // Convert to distance (0 to 2, where 0 is identical)
+      const distance = 1 - dotProduct;
+      
+      return distance;
     }
     
-    // Threshold for face recognition (adjust as needed)
-    const RECOGNITION_THRESHOLD = 0.6;
+    for (const row of result.rows) {
+      try {
+        const registeredDescriptor = JSON.parse(row.face_descriptor);
+        const distance = enhancedDistance(faceDescriptor, registeredDescriptor);
+        
+        console.log(`Distance for user ${row.regis_id}: ${distance}`);
+        
+        if (distance < minDistance) {
+          minDistance = distance;
+          bestMatch = row.regis_id;
+          matchConfidence = 1 - distance;
+          console.log(`New best match - User: ${bestMatch}, Confidence: ${matchConfidence}`);
+        }
+      } catch (error) {
+        console.error(`Error processing descriptor for user ${row.regis_id}:`, error);
+        continue;
+      }
+    }
+
+    // Adjusted threshold settings based on empirical analysis
+    const baseThreshold = 0.5;  // Reduced threshold
+    const minThreshold = 0.25;   // Minimum acceptance threshold
+    const qualityWeight = 0.1; // Reduced quality impact
     
-    if (bestMatch && minDistance < RECOGNITION_THRESHOLD) {
-      // Get user data
+    // Calculate final threshold with bounds
+    const adjustedThreshold = Math.max(
+      minThreshold,
+      baseThreshold * (1 + (detectionScore * qualityWeight))
+    );
+    
+    console.log(`Final threshold: ${adjustedThreshold}, Final confidence: ${matchConfidence}`);
+    
+    if (bestMatch && matchConfidence > adjustedThreshold) {
       const userData = await pool.query(
-        'SELECT * FROM REGISTRATION WHERE REGIS_ID = $1', 
+        `SELECT r.*, ec.EMER_NAME, ec.EMER_RELATIONSHIP, ec.EMER_PHONE_NUMBER 
+         FROM REGISTRATION r 
+         LEFT JOIN EMERGENCY_CONTACT ec ON r.REGIS_ID = ec.REGIS_ID 
+         WHERE r.REGIS_ID = $1`,
         [bestMatch]
       );
       
       res.json({
         recognized: true,
         userData: userData.rows[0],
+        confidence: matchConfidence,
+        threshold: adjustedThreshold
       });
     } else {
       res.json({
         recognized: false,
         userData: null,
+        confidence: matchConfidence,
+        threshold: adjustedThreshold
       });
     }
   } catch (err) {
-    console.error('Error recognizing face:', err);
-    res.status(500).json({ error: 'Failed to recognize face' });
+    console.error('Error in face recognition:', err);
+    res.status(500).json({ 
+      error: 'Failed to process face recognition',
+      details: err.message
+    });
   }
 });
 
-// Serve models from public directory
+// Get user profile endpoint
+app.get('/api/user/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(
+      `SELECT r.*, ec.EMER_NAME, ec.EMER_RELATIONSHIP, ec.EMER_PHONE_NUMBER 
+       FROM REGISTRATION r 
+       LEFT JOIN EMERGENCY_CONTACT ec ON r.REGIS_ID = ec.REGIS_ID 
+       WHERE r.REGIS_ID = $1`,
+      [id]
+    );
+    
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: 'User not found' });
+    } else {
+      res.json(result.rows[0]);
+    }
+  } catch (err) {
+    console.error('Error fetching user profile:', err);
+    res.status(500).json({ error: 'Failed to fetch user profile' });
+  }
+});
+
+// Update user profile endpoint
+app.put('/api/user/:id', upload.single('profileImage'), async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    
+    const { id } = req.params;
+    const updates = { ...req.body };
+    
+    if (req.file) {
+      updates.REGIS_PROFILE_IMAGE_PATH = req.file.path;
+    }
+
+    // Update registration table
+    const registrationResult = await client.query(
+      `UPDATE REGISTRATION 
+       SET 
+         REGIS_FIRST_NAME = COALESCE($1, REGIS_FIRST_NAME),
+         REGIS_LAST_NAME = COALESCE($2, REGIS_LAST_NAME),
+         REGIS_MIDDLE_NAME = COALESCE($3, REGIS_MIDDLE_NAME),
+         REGIS_PROFILE_IMAGE_PATH = COALESCE($4, REGIS_PROFILE_IMAGE_PATH),
+         face_descriptor = COALESCE($5, face_descriptor)
+       WHERE REGIS_ID = $6
+       RETURNING *`,
+      [
+        updates.firstName,
+        updates.lastName,
+        updates.middleName,
+        updates.REGIS_PROFILE_IMAGE_PATH,
+        updates.faceDescriptor ? JSON.stringify(updates.faceDescriptor) : null,
+        id
+      ]
+    );
+
+    // Update emergency contact if provided
+    if (updates.emergencyName || updates.emergencyRelationship || updates.emergencyPhone) {
+      await client.query(
+        `UPDATE EMERGENCY_CONTACT 
+         SET 
+           EMER_NAME = COALESCE($1, EMER_NAME),
+           EMER_RELATIONSHIP = COALESCE($2, EMER_RELATIONSHIP),
+           EMER_PHONE_NUMBER = COALESCE($3, EMER_PHONE_NUMBER)
+         WHERE REGIS_ID = $4`,
+        [
+          updates.emergencyName,
+          updates.emergencyRelationship,
+          updates.emergencyPhone,
+          id
+        ]
+      );
+    }
+
+    await client.query('COMMIT');
+    res.json({ 
+      success: true, 
+      message: 'Profile updated successfully',
+      user: registrationResult.rows[0]
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Error updating profile:', err);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to update profile',
+      error: err.message
+    });
+  } finally {
+    client.release();
+  }
+});
+
+// Serve static files
 app.use('/models', express.static(path.join(__dirname, 'public', 'models')));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({
+    success: false,
+    message: 'Internal server error',
+    error: err.message
+  });
+});
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
+
+export default app;
 
 
 /*
@@ -199,6 +425,7 @@ CREATE TABLE REGISTRATION (
     REGIS_BLOOD_TYPE VARCHAR(5) NOT NULL,
     REGIS_PROFILE_IMAGE_PATH VARCHAR(255),
     REGIS_CREATED_AT TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    face_description
 );
 
 CREATE TABLE EMERGENCY_CONTACT (

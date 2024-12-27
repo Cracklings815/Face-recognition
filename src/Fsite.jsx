@@ -1,11 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Camera } from "lucide-react";
 import * as faceapi from '@vladmandic/face-api';
+import { Link, useNavigate } from 'react-router-dom';
 
-const FaceRecognition = ({ onSuccess }) => {
+const FaceRecognition = () => {
+  const navigate = useNavigate();
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
-  const modelsLoaded = useRef(false);  // Tracks if models are already loaded
+  const modelsLoaded = useRef(false);
+  const detectionIntervalRef = useRef(null);
+  
   const [status, setStatus] = useState("Initializing face detection...");
   const [isPopupVisible, setPopupVisible] = useState(false);
   const [popupMessage, setPopupMessage] = useState("");
@@ -13,10 +17,9 @@ const FaceRecognition = ({ onSuccess }) => {
   const [cameraError, setCameraError] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [debugInfo, setDebugInfo] = useState("");
+  const [failedAttempts, setFailedAttempts] = useState(0);
 
   useEffect(() => {
-    let detectionInterval;
-
     const loadModels = async () => {
       if (modelsLoaded.current) {
         setDebugInfo("Models already loaded.");
@@ -28,12 +31,10 @@ const FaceRecognition = ({ onSuccess }) => {
         setDebugInfo("Starting model loading...");
 
         const modelPath = `${window.location.origin}/models`;
-        console.log('Model path:', modelPath);
-
         await faceapi.nets.tinyFaceDetector.loadFromUri(modelPath);
         await faceapi.nets.faceLandmark68Net.loadFromUri(modelPath);
         await faceapi.nets.faceRecognitionNet.loadFromUri(modelPath);
-        
+
         setDebugInfo("All models loaded successfully.");
         setStatus("Models loaded successfully");
         modelsLoaded.current = true;
@@ -46,32 +47,72 @@ const FaceRecognition = ({ onSuccess }) => {
     };
 
     const startVideo = async () => {
+      if (videoRef.current && videoRef.current.srcObject) {
+        const tracks = videoRef.current.srcObject.getTracks();
+        tracks.forEach(track => track.stop());
+      }
+
       try {
-        setDebugInfo("Requesting camera access...");
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: "user",
             width: { ideal: 640 },
-            height: { ideal: 480 }
+            height: { ideal: 640 },
+            frameRate: { ideal: 30 }
           }
         });
+        
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
-          videoRef.current.addEventListener('play', startFaceDetection);
-          setDebugInfo("Camera stream started");
+          videoRef.current.onloadedmetadata = () => {
+            videoRef.current.play();
+            startFaceDetection();
+          };
         }
         setCameraError(false);
-        setStatus("Face detection active");
+        setStatus("Face detection active - Please look directly at the camera");
       } catch (err) {
         console.error("Error accessing camera:", err);
         setCameraError(true);
         setStatus("Camera access denied. Please enable camera permissions.");
-        setDebugInfo(`Camera error: ${err.message}`);
       }
     };
 
+    const checkFaceQuality = (detection) => {
+      if (!videoRef.current) return false;
+
+      // More stringent quality checks
+      if (detection.detection.score < 0.3) {
+        setStatus("Please ensure your face is well-lit and clear");
+        return false;
+      }
+
+      const faceBox = detection.detection.box;
+      const videoCenter = videoRef.current.videoWidth / 2;
+      const faceCenter = faceBox.x + (faceBox.width / 2);
+      const maxOffset = videoRef.current.videoWidth * 0.2;
+      
+      if (Math.abs(faceCenter - videoCenter) > maxOffset) {
+        setStatus("Please center your face in the frame");
+        return false;
+      }
+
+      const minSize = videoRef.current.videoWidth * 0.25;
+      const maxSize = videoRef.current.videoWidth * 0.75;
+      if (faceBox.width < minSize) {
+        setStatus("Please move closer to the camera");
+        return false;
+      }
+      if (faceBox.width > maxSize) {
+        setStatus("Please move back from the camera");
+        return false;
+      }
+
+      return true;
+    };
+
     const startFaceDetection = async () => {
-      if (!videoRef.current) return;
+      if (!videoRef.current || !canvasRef.current) return;
 
       const canvas = canvasRef.current;
       const displaySize = { 
@@ -80,39 +121,94 @@ const FaceRecognition = ({ onSuccess }) => {
       };
       faceapi.matchDimensions(canvas, displaySize);
 
-      detectionInterval = setInterval(async () => {
+      if (detectionIntervalRef.current) {
+        clearInterval(detectionIntervalRef.current);
+      }
+
+      detectionIntervalRef.current = setInterval(async () => {
         if (isProcessing || !videoRef.current || !canvasRef.current) return;
 
         try {
           setIsProcessing(true);
-          const detections = await faceapi
-            .detectAllFaces(videoRef.current, new faceapi.TinyFaceDetectorOptions())
-            .withFaceLandmarks()
-            .withFaceDescriptors();
+          
+          const detectorOptions = new faceapi.TinyFaceDetectorOptions({
+            inputSize: 320,
+            scoreThreshold: 0.3
+          });
 
-          if (detections.length > 0) {
-            const resizedDetections = faceapi.resizeResults(detections, displaySize);
-            canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
-            faceapi.draw.drawDetections(canvas, resizedDetections);
-            faceapi.draw.drawFaceLandmarks(canvas, resizedDetections);
+          // Take multiple samples for better accuracy
+          const sampleCount = 5;
+          let successfulSamples = 0;
+          let accumulatedDescriptor = new Float32Array(128).fill(0);
 
-            const faceDescriptor = detections[0].descriptor;
-            const response = await fetch('http://localhost:3000/api/recognize', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ faceDescriptor: Array.from(faceDescriptor) })
-            });
+          for (let i = 0; i < sampleCount; i++) {
+            const detections = await faceapi
+              .detectAllFaces(videoRef.current, detectorOptions)
+              .withFaceLandmarks()
+              .withFaceDescriptors();
 
-            const result = await response.json();
-            if (result.recognized) {
-              setPopupMessage("Face recognized!");
-              setPopupColor("bg-green-500");
-              setPopupVisible(true);
-              clearInterval(detectionInterval);
-              if (onSuccess) {
-                setTimeout(() => onSuccess(result.userData), 1000);
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (detections.length === 1) {
+              const detection = detections[0];
+              const resizedDetections = faceapi.resizeResults(detections, displaySize);
+              
+              faceapi.draw.drawDetections(canvas, resizedDetections);
+              faceapi.draw.drawFaceLandmarks(canvas, resizedDetections);
+
+              if (checkFaceQuality(detection)) {
+                successfulSamples++;
+                accumulatedDescriptor = accumulatedDescriptor.map((val, idx) => 
+                  val + detection.descriptor[idx]
+                );
               }
             }
+            
+            await new Promise(resolve => setTimeout(resolve, 200));
+          }
+
+          if (successfulSamples >= 3) {
+            const averageDescriptor = accumulatedDescriptor.map(val => 
+              val / successfulSamples
+            );
+
+            try {
+              const response = await fetch('/api/recognize', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                  faceDescriptor: Array.from(averageDescriptor),
+                  detectionScore: successfulSamples / sampleCount,
+                })
+              });
+
+              if (!response.ok) {
+                throw new Error(`Server responded with ${response.status}`);
+              }
+
+              const result = await response.json();
+              if (result.recognized) {
+                setPopupMessage("Face recognized! Redirecting...");
+                setPopupColor("bg-green-500");
+                setPopupVisible(true);
+                
+                setTimeout(() => {
+                  navigate('/success', { state: { userData: result.userData } });
+                }, 1500);
+              } else {
+                setFailedAttempts(prev => {
+                  const newCount = prev + 1;
+                  setStatus(`Face not recognized. Please try again. Attempts: ${newCount}`);
+                  return newCount;
+                });
+              }
+            } catch (error) {
+              console.error("API Error:", error);
+              setStatus("Connection error. Please try again.");
+            }
+          } else {
+            setStatus("Please maintain a clear, steady pose");
           }
         } catch (error) {
           console.error("Error in face detection:", error);
@@ -120,57 +216,56 @@ const FaceRecognition = ({ onSuccess }) => {
         } finally {
           setIsProcessing(false);
         }
-      }, 1000);
+      }, 1500);
     };
 
     loadModels();
 
     return () => {
-      if (detectionInterval) {
-        clearInterval(detectionInterval);
+      if (detectionIntervalRef.current) {
+        clearInterval(detectionIntervalRef.current);
       }
       if (videoRef.current && videoRef.current.srcObject) {
         const tracks = videoRef.current.srcObject.getTracks();
         tracks.forEach(track => track.stop());
       }
     };
-  }, [onSuccess]);
+  }, [failedAttempts, navigate]);
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100">
-      <div className="bg-white shadow-md rounded-lg p-6 w-96">
-        <h1 className="text-3xl font-bold mb-10 text-center">Face Recognition</h1>
-        <div className="flex flex-col items-center mb-4">
-          <div className="w-96 h-96 border-4 border-gray-300 rounded-lg overflow-hidden relative">
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              className="w-full h-full object-cover"
-            />
-            <canvas
-              ref={canvasRef}
-              className="absolute top-0 left-0 w-full h-full"
-            />
-            {cameraError && (
-              <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
-                <Camera size={64} className="text-gray-400" />
-                <p className="text-sm text-gray-500 mt-4">Camera access required</p>
-              </div>
-            )}
-          </div>
+    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 p-4">
+      <div className="bg-white shadow-md rounded-lg p-6 max-w-md w-full">
+        <h1 className="text-3xl font-bold mb-6 text-center">Face Recognition</h1>
+        
+        <div className="aspect-square w-full relative rounded-lg overflow-hidden border-4 border-gray-300">
+          <video 
+            ref={videoRef}
+            autoPlay 
+            playsInline 
+            muted 
+            className="absolute inset-0 w-full h-full object-cover"
+          />
+          <canvas 
+            ref={canvasRef}
+            className="absolute inset-0 w-full h-full"
+          />
         </div>
-        <p className="text-center text-gray-600 mt-4">{status}</p>
-        <pre className="mt-4 p-2 bg-gray-100 rounded text-xs overflow-auto max-h-40">
-          {debugInfo}
-        </pre>
+
+        <div className="mt-4 space-y-2">
+          <p className="text-center text-gray-600">{status}</p>
+          {debugInfo && <p className="text-sm text-gray-500 text-center">{debugInfo}</p>}
+          {failedAttempts >= 3 && (
+            <p className="text-center text-red-500">
+              Face not recognized. <Link to="/register" className="underline">Register here</Link>
+            </p>
+          )}
+        </div>
       </div>
 
       {isPopupVisible && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50">
-          <div className={`${popupColor} rounded-lg shadow-lg p-8 w-96 text-center text-white transition-all duration-300`}>
-            <h2 className="text-2xl font-bold mb-2">{popupMessage}</h2>
+        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+          <div className={`${popupColor} rounded-lg shadow-lg p-8 text-center text-white`}>
+            <p className="text-2xl font-bold">{popupMessage}</p>
           </div>
         </div>
       )}
