@@ -82,7 +82,7 @@ const FaceRecognition = () => {
       if (!videoRef.current) return false;
 
       // More stringent quality checks
-      if (detection.detection.score < 0.3) {
+      if (detection.detection.score < 0.6) {
         setStatus("Please ensure your face is well-lit and clear");
         return false;
       }
@@ -133,7 +133,7 @@ const FaceRecognition = () => {
           
           const detectorOptions = new faceapi.TinyFaceDetectorOptions({
             inputSize: 320,
-            scoreThreshold: 0.3
+            scoreThreshold: 0.6
           });
 
           // Take multiple samples for better accuracy
@@ -169,9 +169,14 @@ const FaceRecognition = () => {
           }
 
           if (successfulSamples >= 3) {
-            const averageDescriptor = accumulatedDescriptor.map(val => 
-              val / successfulSamples
-            );
+            const averageDescriptor = accumulatedDescriptor.map(val => val / successfulSamples);
+
+            console.log('Average Descriptor:', averageDescriptor);
+            console.log('Sending descriptor:', Array.from(averageDescriptor));
+            console.log('Descriptor type:', typeof Array.from(averageDescriptor));
+            console.log('Is array:', Array.isArray(Array.from(averageDescriptor)));
+            console.log('Descriptor length:', Array.from(averageDescriptor).length);
+            console.log('First few values:', Array.from(averageDescriptor).slice(0, 5));
 
             try {
               const response = await fetch('/api/recognize', {
@@ -188,6 +193,7 @@ const FaceRecognition = () => {
               }
 
               const result = await response.json();
+              console.log('Recognition Result:', result);
               if (result.recognized) {
                 setPopupMessage("Face recognized! Redirecting...");
                 setPopupColor("bg-green-500");

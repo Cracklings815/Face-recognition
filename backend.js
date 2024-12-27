@@ -1,4 +1,4 @@
-// server.js
+// backend.js
 import express from 'express';
 import multer from 'multer';
 import path from 'path';
@@ -112,6 +112,9 @@ function normalizedEuclideanDistance(descriptor1, descriptor2) {
   }
 }
 
+
+
+
 // Registration endpoint
 app.post('/api/register', upload.single('profileImage'), async (req, res) => {
   const client = await pool.connect();
@@ -188,73 +191,82 @@ app.post('/api/register', upload.single('profileImage'), async (req, res) => {
 });
 
 // Face Recognition endpoint
+function calculateCosineSimilarity(desc1, desc2) {
+  if (!Array.isArray(desc1) || !Array.isArray(desc2) || desc1.length !== desc2.length) {
+    console.error('Invalid descriptor format or length mismatch');
+    return 0;
+  }
+
+  // Normalize the descriptors
+  const normalize = (desc) => {
+    const magnitude = Math.sqrt(desc.reduce((sum, val) => sum + val * val, 0));
+    return magnitude === 0 ? desc : desc.map(val => val / magnitude);
+  };
+
+  const normalizedDesc1 = normalize(desc1);
+  const normalizedDesc2 = normalize(desc2);
+
+  // Calculate cosine similarity
+  const dotProduct = normalizedDesc1.reduce((sum, val, idx) => sum + val * normalizedDesc2[idx], 0);
+  return (dotProduct + 1) / 2; // Convert from [-1,1] to [0,1] range
+}
+
+// Replace the /api/recognize endpoint with this improved version
 app.post('/api/recognize', async (req, res) => {
   const { faceDescriptor, detectionScore } = req.body;
 
-  if (!faceDescriptor || !Array.isArray(faceDescriptor)) {
-    return res.status(400).json({ error: 'Invalid face descriptor' });
+  if (!faceDescriptor || !Array.isArray(faceDescriptor) || faceDescriptor.length !== 128) {
+    return res.status(400).json({ 
+      error: 'Invalid face descriptor',
+      details: `Expected array of length 128, got ${faceDescriptor?.length}`
+    });
   }
 
   try {
+    // Get all registrations with face descriptors
     const result = await pool.query(
-      'SELECT REGIS_ID, face_descriptor FROM REGISTRATION WHERE face_descriptor IS NOT NULL'
+      'SELECT REGIS_ID, face_descriptor, REGIS_FIRST_NAME, REGIS_LAST_NAME FROM REGISTRATION WHERE face_descriptor IS NOT NULL'
     );
     
     let bestMatch = null;
-    let minDistance = Number.MAX_VALUE;
-    let matchConfidence = 0;
+    let highestSimilarity = 0;
 
-    // Enhanced distance calculation function
-    function enhancedDistance(desc1, desc2) {
-      // Normalize both descriptors
-      const norm1 = Math.sqrt(desc1.reduce((sum, val) => sum + val * val, 0));
-      const norm2 = Math.sqrt(desc2.reduce((sum, val) => sum + val * val, 0));
-      
-      const normalizedDesc1 = desc1.map(val => val / norm1);
-      const normalizedDesc2 = desc2.map(val => val / norm2);
-
-      // Calculate cosine similarity
-      const dotProduct = normalizedDesc1.reduce((sum, val, idx) => sum + val * normalizedDesc2[idx], 0);
-      
-      // Convert to distance (0 to 2, where 0 is identical)
-      const distance = 1 - dotProduct;
-      
-      return distance;
-    }
-    
     for (const row of result.rows) {
       try {
-        const registeredDescriptor = JSON.parse(row.face_descriptor);
-        const distance = enhancedDistance(faceDescriptor, registeredDescriptor);
+        const storedDescriptor = JSON.parse(row.face_descriptor);
         
-        console.log(`Distance for user ${row.regis_id}: ${distance}`);
+        if (!Array.isArray(storedDescriptor) || storedDescriptor.length !== 128) {
+          console.warn(`Invalid stored descriptor for user ${row.regis_id}`);
+          continue;
+        }
+
+        const similarity = calculateCosineSimilarity(faceDescriptor, storedDescriptor);
         
-        if (distance < minDistance) {
-          minDistance = distance;
+        console.log(`User ${row.regis_id} (${row.regis_first_name} ${row.regis_last_name}) - Similarity: ${similarity}`);
+
+        if (similarity > highestSimilarity) {
+          highestSimilarity = similarity;
           bestMatch = row.regis_id;
-          matchConfidence = 1 - distance;
-          console.log(`New best match - User: ${bestMatch}, Confidence: ${matchConfidence}`);
         }
       } catch (error) {
-        console.error(`Error processing descriptor for user ${row.regis_id}:`, error);
+        console.error(`Error processing user ${row.regis_id}:`, error);
         continue;
       }
     }
 
-    // Adjusted threshold settings based on empirical analysis
-    const baseThreshold = 0.5;  // Reduced threshold
-    const minThreshold = 0.25;   // Minimum acceptance threshold
-    const qualityWeight = 0.1; // Reduced quality impact
-    
-    // Calculate final threshold with bounds
-    const adjustedThreshold = Math.max(
-      minThreshold,
-      baseThreshold * (1 + (detectionScore * qualityWeight))
-    );
-    
-    console.log(`Final threshold: ${adjustedThreshold}, Final confidence: ${matchConfidence}`);
-    
-    if (bestMatch && matchConfidence > adjustedThreshold) {
+    // Dynamic threshold calculation based on detection score
+    const baseThreshold = 0.75; // Increased base threshold
+    const detectionScoreWeight = 0.1;
+    const finalThreshold = baseThreshold - (detectionScoreWeight * (1 - detectionScore));
+
+    console.log('Recognition results:', {
+      highestSimilarity,
+      finalThreshold,
+      detectionScore,
+      bestMatch
+    });
+
+    if (bestMatch && highestSimilarity >= finalThreshold) {
       const userData = await pool.query(
         `SELECT r.*, ec.EMER_NAME, ec.EMER_RELATIONSHIP, ec.EMER_PHONE_NUMBER 
          FROM REGISTRATION r 
@@ -266,21 +278,22 @@ app.post('/api/recognize', async (req, res) => {
       res.json({
         recognized: true,
         userData: userData.rows[0],
-        confidence: matchConfidence,
-        threshold: adjustedThreshold
+        confidence: highestSimilarity,
+        threshold: finalThreshold
       });
     } else {
       res.json({
         recognized: false,
         userData: null,
-        confidence: matchConfidence,
-        threshold: adjustedThreshold
+        confidence: highestSimilarity,
+        threshold: finalThreshold,
+        message: 'No match found above confidence threshold'
       });
     }
   } catch (err) {
     console.error('Error in face recognition:', err);
     res.status(500).json({ 
-      error: 'Failed to process face recognition',
+      error: 'Face recognition failed',
       details: err.message
     });
   }
