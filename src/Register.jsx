@@ -152,12 +152,12 @@ const Registration = () => {
       
       // Clean and validate face descriptor before sending
       if (faceDescriptor) {
-        // Ensure we have a clean array of numbers
+        // Convert descriptor to a clean array of numbers
         const cleanDescriptor = Array.from(faceDescriptor)
           .map(val => typeof val === 'number' ? val : parseFloat(val))
           .filter(val => !isNaN(val));
   
-        // Validate the descriptor
+        // Validate descriptor length
         if (cleanDescriptor.length !== 128) {
           throw new Error(`Invalid descriptor length: ${cleanDescriptor.length}`);
         }
@@ -165,27 +165,17 @@ const Registration = () => {
         // Create a clean JSON string
         const descriptorString = JSON.stringify(cleanDescriptor);
         
-        // Log for debugging
-        console.log('Clean descriptor string:', descriptorString);
-        console.log('Descriptor string length:', descriptorString.length);
-        
-        // Add to form data
-        formDataToSend.append('faceDescriptor', descriptorString);
-      }
-  
-      // Verify the data before sending
-      console.log('Verification of form data:');
-      for (let [key, value] of formDataToSend.entries()) {
-        if (key === 'faceDescriptor') {
-          console.log('Face descriptor in form:', value);
-          // Verify it can be parsed
-          try {
-            JSON.parse(value);
-            console.log('Face descriptor is valid JSON');
-          } catch (e) {
-            console.error('Invalid JSON in face descriptor:', e);
-            throw new Error('Face descriptor validation failed');
-          }
+        // Verify JSON is valid
+        try {
+          JSON.parse(descriptorString); // Test parse
+          formDataToSend.append('faceDescriptor', descriptorString);
+          
+          // Log for debugging
+          console.log('Clean descriptor string:', descriptorString);
+          console.log('Descriptor string length:', descriptorString.length);
+        } catch (e) {
+          console.error('Invalid JSON format:', e);
+          throw new Error('Face descriptor validation failed');
         }
       }
   
@@ -203,9 +193,9 @@ const Registration = () => {
       if (result.success) {
         setPopupMessage("Registration successful! Redirecting to login page...");
         setPopupColor("bg-blue-500");
-        // setTimeout(() => {
-        //   navigate('/');
-        // }, 3000);
+        setTimeout(() => {
+          navigate("/");
+        }, 3000);
       } else {
         throw new Error(result.message || 'Registration failed');
       }
