@@ -11,5 +11,7 @@ Currently, two official plugins are available:
 - Steps on running this system
 - npms cors...
 - npm install @vladmandic/face-api
-- 
+- ALTER TABLE REGISTRATION 
+
+ALTER COLUMN face_descriptor TYPE JSONB USING face_descriptor::JSONB;
 - node backend.js
