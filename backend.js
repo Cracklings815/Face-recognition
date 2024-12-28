@@ -121,7 +121,7 @@ app.post('/api/register', upload.single('profileImage'), async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // Parse face descriptor with additional validation
+    // Parse and validate face descriptor
     let faceDescriptor;
     try {
       const descriptorString = req.body.faceDescriptor;
@@ -129,23 +129,25 @@ app.post('/api/register', upload.single('profileImage'), async (req, res) => {
       // Log the raw input for debugging
       console.log('Raw descriptor input:', descriptorString);
       
-      // Ensure the string is properly formatted before parsing
+      // Validate input type
       if (typeof descriptorString !== 'string') {
         throw new Error('Face descriptor must be a string');
       }
       
       // Parse the JSON string
-      faceDescriptor = JSON.parse(descriptorString);
+      const parsedDescriptor = JSON.parse(descriptorString);
       
-      // Validate the parsed descriptor
-      if (!Array.isArray(faceDescriptor) || faceDescriptor.length !== 128) {
-        throw new Error(`Invalid face descriptor format: Expected array of length 128, got ${faceDescriptor?.length}`);
+      // Validate array structure
+      if (!Array.isArray(parsedDescriptor) || parsedDescriptor.length !== 128) {
+        throw new Error(`Invalid face descriptor format: Expected array of length 128, got ${parsedDescriptor?.length}`);
       }
       
-      // Ensure all values are numbers
-      if (!faceDescriptor.every(val => typeof val === 'number' && !isNaN(val))) {
+      // Validate numeric values
+      if (!parsedDescriptor.every(val => typeof val === 'number' && !isNaN(val))) {
         throw new Error('Face descriptor must contain only valid numbers');
       }
+      
+      faceDescriptor = parsedDescriptor;
       
       // Log the parsed descriptor for verification
       console.log('Parsed descriptor:', {
@@ -159,7 +161,7 @@ app.post('/api/register', upload.single('profileImage'), async (req, res) => {
       throw new Error(`Failed to parse face descriptor: ${error.message}`);
     }
 
-    // Rest of your registration code...
+    // Insert into database with validated descriptor
     const registrationResult = await client.query(
       `INSERT INTO REGISTRATION (
         REGIS_FIRST_NAME, REGIS_LAST_NAME, REGIS_MIDDLE_NAME, REGIS_DATE_OF_BIRTH,
@@ -186,30 +188,14 @@ app.post('/api/register', upload.single('profileImage'), async (req, res) => {
         req.body.occupation,
         req.body.bloodType,
         req.file ? req.file.path : null,
-        JSON.stringify(faceDescriptor) // Use the parsed and validated descriptor
+        JSON.stringify(faceDescriptor) // Use the validated descriptor
       ]
     );
 
+    // Rest of the registration code...
     const registrationId = registrationResult.rows[0].regis_id;
 
-    // Verify stored descriptor
-    console.log('Stored face descriptor:', {
-      id: registrationId,
-      descriptor: faceDescriptor
-    });
-
-    // Add verification query
-    const verifyDescriptor = await client.query(
-      'SELECT face_descriptor FROM REGISTRATION WHERE REGIS_ID = $1',
-      [registrationId]
-    );
-    console.log('Retrieved descriptor:', {
-      raw: verifyDescriptor.rows[0].face_descriptor,
-      parsed: JSON.parse(verifyDescriptor.rows[0].face_descriptor),
-      length: JSON.parse(verifyDescriptor.rows[0].face_descriptor).length
-    });
-
-    // Insert emergency contact information
+    // Insert emergency contact
     await client.query(
       `INSERT INTO EMERGENCY_CONTACT (
         REGIS_ID, EMER_NAME, EMER_RELATIONSHIP, EMER_PHONE_NUMBER

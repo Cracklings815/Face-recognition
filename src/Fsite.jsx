@@ -17,7 +17,7 @@ const FaceRecognition = () => {
   const [cameraError, setCameraError] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [debugInfo, setDebugInfo] = useState("");
-  const [failedAttempts, setFailedAttempts] = useState(5);
+  const [failedAttempts, setFailedAttempts] = useState(0);
 
   useEffect(() => {
     const loadModels = async () => {
@@ -200,7 +200,9 @@ const FaceRecognition = () => {
                 setPopupVisible(true);
                 
                 setTimeout(() => {
-                  navigate('/success', { state: { userData: result.userData } });
+                  navigate('/success', { state: 
+                    { userData: result.userData
+                     } });
                 }, 1500);
               } else {
                 setFailedAttempts(prev => {
