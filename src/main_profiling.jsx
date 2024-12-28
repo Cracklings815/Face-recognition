@@ -59,14 +59,13 @@ const ProfileDisplay = () => {
                   userData?.regis_last_name
                 ].filter(Boolean).join(' ')}
               </h2>
-              <p className="text-gray-600">{userData?.regis_occupation}</p>
+              <p className="text-gray-600">Occupation: {userData?.regis_occupation}</p>
               <p className="text-gray-600">Sex: {userData?.regis_sex}</p>
               <p className="text-gray-600">Gender: {userData?.regis_gender}</p>
+              <p className="text-gray-600">Phone Number: {userData?.regis_phone_number}</p>
+              <p className="text-gray-600">Email: {userData?.regis_email}</p>
             </div>
-            <div className="text-right">
-              <p className="text-gray-600">{userData?.regis_phone_number}</p>
-              <p className="text-gray-600">{userData?.regis_email}</p>
-            </div>
+          
           </div>
         </div>
       </div>

@@ -17,25 +17,23 @@ const FaceRecognition = () => {
   const [cameraError, setCameraError] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [debugInfo, setDebugInfo] = useState("");
-  const [failedAttempts, setFailedAttempts] = useState(0);
+  const [failedAttempts, setFailedAttempts] = useState(5);
 
   useEffect(() => {
     const loadModels = async () => {
       if (modelsLoaded.current) {
-        setDebugInfo("Models already loaded.");
         await startVideo();
         return;
       }
       try {
         setStatus("Loading face recognition models...");
-        setDebugInfo("Starting model loading...");
+        
 
         const modelPath = `${window.location.origin}/models`;
         await faceapi.nets.tinyFaceDetector.loadFromUri(modelPath);
         await faceapi.nets.faceLandmark68Net.loadFromUri(modelPath);
         await faceapi.nets.faceRecognitionNet.loadFromUri(modelPath);
 
-        setDebugInfo("All models loaded successfully.");
         setStatus("Models loaded successfully");
         modelsLoaded.current = true;
         await startVideo();
@@ -202,6 +200,7 @@ const FaceRecognition = () => {
                 setTimeout(() => {
                   navigate('/success', { state: 
                     { userData: result.userData
+                      
                      } });
                 }, 1500);
               } else {
