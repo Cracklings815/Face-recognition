@@ -13,5 +13,5 @@ Currently, two official plugins are available:
 - npm install @vladmandic/face-api
 - ALTER TABLE REGISTRATION 
 
-ALTER COLUMN face_descriptor TYPE JSONB USING face_descriptor::JSONB;
+ALTER COLUMN face_descriptor TYPE TEXT
 - node backend.js
