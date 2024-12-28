@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Camera } from "lucide-react";
 import * as faceapi from '@vladmandic/face-api';
 import { Link, useNavigate } from 'react-router-dom';
-
+// study
 const FaceRecognition = () => {
   const navigate = useNavigate();
   const videoRef = useRef(null);
