@@ -121,11 +121,45 @@ app.post('/api/register', upload.single('profileImage'), async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // Validate face descriptor
-    if (!req.body.faceDescriptor) {
-      throw new Error('Face descriptor is required');
+    // Parse face descriptor with additional validation
+    let faceDescriptor;
+    try {
+      const descriptorString = req.body.faceDescriptor;
+      
+      // Log the raw input for debugging
+      console.log('Raw descriptor input:', descriptorString);
+      
+      // Ensure the string is properly formatted before parsing
+      if (typeof descriptorString !== 'string') {
+        throw new Error('Face descriptor must be a string');
+      }
+      
+      // Parse the JSON string
+      faceDescriptor = JSON.parse(descriptorString);
+      
+      // Validate the parsed descriptor
+      if (!Array.isArray(faceDescriptor) || faceDescriptor.length !== 128) {
+        throw new Error(`Invalid face descriptor format: Expected array of length 128, got ${faceDescriptor?.length}`);
+      }
+      
+      // Ensure all values are numbers
+      if (!faceDescriptor.every(val => typeof val === 'number' && !isNaN(val))) {
+        throw new Error('Face descriptor must contain only valid numbers');
+      }
+      
+      // Log the parsed descriptor for verification
+      console.log('Parsed descriptor:', {
+        length: faceDescriptor.length,
+        sample: faceDescriptor.slice(0, 5)
+      });
+      
+    } catch (error) {
+      console.error('Face descriptor parsing error:', error);
+      console.error('Raw descriptor data:', req.body.faceDescriptor);
+      throw new Error(`Failed to parse face descriptor: ${error.message}`);
     }
 
+    // Rest of your registration code...
     const registrationResult = await client.query(
       `INSERT INTO REGISTRATION (
         REGIS_FIRST_NAME, REGIS_LAST_NAME, REGIS_MIDDLE_NAME, REGIS_DATE_OF_BIRTH,
@@ -152,11 +186,28 @@ app.post('/api/register', upload.single('profileImage'), async (req, res) => {
         req.body.occupation,
         req.body.bloodType,
         req.file ? req.file.path : null,
-        req.body.faceDescriptor ? JSON.stringify(req.body.faceDescriptor) : null
+        JSON.stringify(faceDescriptor) // Use the parsed and validated descriptor
       ]
     );
 
     const registrationId = registrationResult.rows[0].regis_id;
+
+    // Verify stored descriptor
+    console.log('Stored face descriptor:', {
+      id: registrationId,
+      descriptor: faceDescriptor
+    });
+
+    // Add verification query
+    const verifyDescriptor = await client.query(
+      'SELECT face_descriptor FROM REGISTRATION WHERE REGIS_ID = $1',
+      [registrationId]
+    );
+    console.log('Retrieved descriptor:', {
+      raw: verifyDescriptor.rows[0].face_descriptor,
+      parsed: JSON.parse(verifyDescriptor.rows[0].face_descriptor),
+      length: JSON.parse(verifyDescriptor.rows[0].face_descriptor).length
+    });
 
     // Insert emergency contact information
     await client.query(
@@ -183,7 +234,13 @@ app.post('/api/register', upload.single('profileImage'), async (req, res) => {
     res.status(500).json({ 
       success: false, 
       message: 'Registration failed', 
-      error: err.message 
+      error: err.message,
+      details: {
+        receivedDescriptor: req.body.faceDescriptor ? {
+          type: typeof req.body.faceDescriptor,
+          length: Array.isArray(req.body.faceDescriptor) ? req.body.faceDescriptor.length : null
+        } : null
+      }
     });
   } finally {
     client.release();
@@ -191,29 +248,50 @@ app.post('/api/register', upload.single('profileImage'), async (req, res) => {
 });
 
 // Face Recognition endpoint
-function calculateCosineSimilarity(desc1, desc2) {
+function calculateFaceSimilarity(desc1, desc2) {
   if (!Array.isArray(desc1) || !Array.isArray(desc2) || desc1.length !== desc2.length) {
     console.error('Invalid descriptor format or length mismatch');
     return 0;
   }
 
-  // Normalize the descriptors
-  const normalize = (desc) => {
-    const magnitude = Math.sqrt(desc.reduce((sum, val) => sum + val * val, 0));
-    return magnitude === 0 ? desc : desc.map(val => val / magnitude);
-  };
+  try {
+    // L2 normalization of descriptors
+    const normalize = (desc) => {
+      const magnitude = Math.sqrt(desc.reduce((sum, val) => sum + val * val, 0));
+      return magnitude === 0 ? desc : desc.map(val => val / magnitude);
+    };
 
-  const normalizedDesc1 = normalize(desc1);
-  const normalizedDesc2 = normalize(desc2);
+    const normalizedDesc1 = normalize(desc1);
+    const normalizedDesc2 = normalize(desc2);
 
-  // Calculate cosine similarity
-  const dotProduct = normalizedDesc1.reduce((sum, val, idx) => sum + val * normalizedDesc2[idx], 0);
-  return (dotProduct + 1) / 2; // Convert from [-1,1] to [0,1] range
+    // Calculate both Euclidean distance and cosine similarity
+    const euclideanDistance = Math.sqrt(
+      normalizedDesc1.reduce((sum, val, idx) => {
+        const diff = val - normalizedDesc2[idx];
+        return sum + diff * diff;
+      }, 0)
+    );
+
+    const cosineSimilarity = normalizedDesc1.reduce((sum, val, idx) => 
+      sum + val * normalizedDesc2[idx], 0);
+
+    // Combine both metrics for better accuracy
+    const combinedScore = (1 - euclideanDistance + cosineSimilarity) / 2;
+    return combinedScore;
+  } catch (error) {
+    console.error('Error in similarity calculation:', error);
+    return 0;
+  }
 }
 
-// Replace the /api/recognize endpoint with this improved version
+// Improved recognition endpoint
 app.post('/api/recognize', async (req, res) => {
   const { faceDescriptor, detectionScore } = req.body;
+
+  console.log('Incoming descriptor:', {
+    length: faceDescriptor?.length,
+    sample: faceDescriptor?.slice(0, 5)
+  });
 
   if (!faceDescriptor || !Array.isArray(faceDescriptor) || faceDescriptor.length !== 128) {
     return res.status(400).json({ 
@@ -225,12 +303,16 @@ app.post('/api/recognize', async (req, res) => {
   try {
     // Get all registrations with face descriptors
     const result = await pool.query(
-      'SELECT REGIS_ID, face_descriptor, REGIS_FIRST_NAME, REGIS_LAST_NAME FROM REGISTRATION WHERE face_descriptor IS NOT NULL'
+      'SELECT REGIS_ID, FACE_DESCRIPTOR, REGIS_FIRST_NAME, REGIS_LAST_NAME FROM REGISTRATION WHERE FACE_DESCRIPTOR IS NOT NULL'
     );
-    
-    let bestMatch = null;
-    let highestSimilarity = 0;
 
+    console.log('Database records found:', result.rows.length);
+
+    
+    
+    let matches = [];
+
+    // Calculate similarity scores for all registered faces
     for (const row of result.rows) {
       try {
         const storedDescriptor = JSON.parse(row.face_descriptor);
@@ -240,52 +322,68 @@ app.post('/api/recognize', async (req, res) => {
           continue;
         }
 
-        const similarity = calculateCosineSimilarity(faceDescriptor, storedDescriptor);
+      
+        const similarity = calculateFaceSimilarity(faceDescriptor, storedDescriptor);
         
-        console.log(`User ${row.regis_id} (${row.regis_first_name} ${row.regis_last_name}) - Similarity: ${similarity}`);
+        matches.push({
+          regisId: row.regis_id,
+          similarity,
+          name: `${row.regis_first_name} ${row.regis_last_name}`
+        });
 
-        if (similarity > highestSimilarity) {
-          highestSimilarity = similarity;
-          bestMatch = row.regis_id;
-        }
       } catch (error) {
         console.error(`Error processing user ${row.regis_id}:`, error);
         continue;
       }
-    }
 
-    // Dynamic threshold calculation based on detection score
-    const baseThreshold = 0.75; // Increased base threshold
+    }
+    console.log('Processed descriptors:', matches.map(m => ({
+      id: m.regisId,
+      similarity: m.similarity
+    })));
+    
+    // Sort matches by similarity score
+    matches.sort((a, b) => b.similarity - a.similarity);
+
+    // Dynamic threshold based on multiple factors
+    const baseThreshold = 0.65; // Increased base threshold
     const detectionScoreWeight = 0.1;
     const finalThreshold = baseThreshold - (detectionScoreWeight * (1 - detectionScore));
 
-    console.log('Recognition results:', {
-      highestSimilarity,
+    // Log recognition metrics for debugging
+    console.log('Recognition metrics:', {
+      topMatches: matches.slice(0, 3),
       finalThreshold,
+
       detectionScore,
-      bestMatch
+      totalComparisons: matches.length
     });
 
-    if (bestMatch && highestSimilarity >= finalThreshold) {
+    const bestMatch = matches[0];
+
+    if (bestMatch && bestMatch.similarity >= finalThreshold) {
       const userData = await pool.query(
         `SELECT r.*, ec.EMER_NAME, ec.EMER_RELATIONSHIP, ec.EMER_PHONE_NUMBER 
          FROM REGISTRATION r 
          LEFT JOIN EMERGENCY_CONTACT ec ON r.REGIS_ID = ec.REGIS_ID 
          WHERE r.REGIS_ID = $1`,
-        [bestMatch]
+        [bestMatch.regisId]
       );
       
       res.json({
         recognized: true,
         userData: userData.rows[0],
-        confidence: highestSimilarity,
-        threshold: finalThreshold
+        confidence: bestMatch.similarity,
+        threshold: finalThreshold,
+        matchDetails: {
+          name: bestMatch.name,
+          similarity: bestMatch.similarity
+        }
       });
     } else {
       res.json({
         recognized: false,
-        userData: null,
-        confidence: highestSimilarity,
+        confidence: bestMatch?.similarity || 0,
         threshold: finalThreshold,
         message: 'No match found above confidence threshold'
       });
@@ -438,7 +536,7 @@ CREATE TABLE REGISTRATION (
     REGIS_BLOOD_TYPE VARCHAR(5) NOT NULL,
     REGIS_PROFILE_IMAGE_PATH VARCHAR(255),
     REGIS_CREATED_AT TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    face_description
+    face_descriptor
 );
 
 CREATE TABLE EMERGENCY_CONTACT (

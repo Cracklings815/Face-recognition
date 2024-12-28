@@ -17,7 +17,7 @@ const FaceRecognition = () => {
   const [cameraError, setCameraError] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [debugInfo, setDebugInfo] = useState("");
-  const [failedAttempts, setFailedAttempts] = useState(0);
+  const [failedAttempts, setFailedAttempts] = useState(5);
 
   useEffect(() => {
     const loadModels = async () => {
@@ -133,7 +133,7 @@ const FaceRecognition = () => {
           
           const detectorOptions = new faceapi.TinyFaceDetectorOptions({
             inputSize: 320,
-            scoreThreshold: 0.6
+            scoreThreshold: 0.5
           });
 
           // Take multiple samples for better accuracy
@@ -168,7 +168,7 @@ const FaceRecognition = () => {
             await new Promise(resolve => setTimeout(resolve, 200));
           }
 
-          if (successfulSamples >= 3) {
+          if (successfulSamples >= 2) {
             const averageDescriptor = accumulatedDescriptor.map(val => val / successfulSamples);
 
             console.log('Average Descriptor:', averageDescriptor);

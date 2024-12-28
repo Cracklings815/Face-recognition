@@ -21,11 +21,9 @@ const Registration = () => {
     email: '',
     occupation: '',
     bloodType: '',
-    emergencyContact: {
-      name: '',
-      relationship: '',
-      phoneNumber: ''
-    }
+    emergencyName: '',
+    emergencyRelationship: '',
+    emergencyPhone: ''
   });
 
   // UI States
@@ -69,20 +67,30 @@ const Registration = () => {
       alert('Face recognition models are still loading. Please wait.');
       return null;
     }
-
+  
     try {
       setIsProcessing(true);
       const detection = await faceapi
         .detectSingleFace(imageElement, new faceapi.TinyFaceDetectorOptions())
         .withFaceLandmarks()
         .withFaceDescriptor();
-
+  
       if (!detection) {
         alert('No face detected in the image. Please try again with a clearer photo.');
         return null;
       }
-
-      return Array.from(detection.descriptor);
+  
+      // Clean the descriptor data
+      const cleanDescriptor = Array.from(detection.descriptor)
+        .map(val => typeof val === 'number' ? val : parseFloat(val))
+        .filter(val => !isNaN(val));
+  
+      // Validate length
+      if (cleanDescriptor.length !== 128) {
+        throw new Error('Invalid face descriptor length');
+      }
+  
+      return cleanDescriptor;
     } catch (error) {
       console.error('Error extracting face descriptor:', error);
       alert('Failed to process face recognition. Please try again.');
@@ -94,21 +102,10 @@ const Registration = () => {
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    if (name.startsWith('emergency')) {
-      const field = name.replace('emergency', '').toLowerCase();
-      setFormData(prev => ({
-        ...prev,
-        emergencyContact: {
-          ...prev.emergencyContact,
-          [field]: value
-        }
-      }));
-    } else {
-      setFormData(prev => ({
-        ...prev,
-        [name]: value
-      }));
-    }
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
   };
 
   const handleProfileImageUpload = async (e) => {
@@ -137,57 +134,84 @@ const Registration = () => {
       alert('Please provide a profile picture with a clearly visible face.');
       return;
     }
-
-    if (isProcessing) {
-      alert('Please wait while we process your face recognition data.');
-      return;
-    }
-
-    const formDataToSend = new FormData();
-    
-    // Append all form data
-    Object.keys(formData).forEach(key => {
-      if (key !== 'emergencyContact') {
-        formDataToSend.append(key, formData[key]);
-      }
-    });
-    
-    // Append emergency contact fields
-    formDataToSend.append('emergencyName', formData.emergencyContact.name);
-    formDataToSend.append('emergencyRelationship', formData.emergencyContact.relationship);
-    formDataToSend.append('emergencyPhone', formData.emergencyContact.phoneNumber);
-    
-    // Append face descriptor
-    formDataToSend.append('faceDescriptor', JSON.stringify(faceDescriptor));
-    
+  
     try {
-      // Convert base64 to blob
-      const response = await fetch(profileImage);
-      const blob = await response.blob();
-      formDataToSend.append('profileImage', blob, `${formData.firstName}_${formData.middleName}_${formData.lastName}.jpg`);
-
+      const formDataToSend = new FormData();
+      
+      // Add basic form fields
+      Object.keys(formData).forEach(key => {
+        formDataToSend.append(key, formData[key]);
+      });
+      
+      // Handle profile image
+      if (typeof profileImage === 'string' && profileImage.startsWith('data:image')) {
+        const response = await fetch(profileImage);
+        const blob = await response.blob();
+        formDataToSend.append('profileImage', blob, 'profile.jpg');
+      }
+      
+      // Clean and validate face descriptor before sending
+      if (faceDescriptor) {
+        // Ensure we have a clean array of numbers
+        const cleanDescriptor = Array.from(faceDescriptor)
+          .map(val => typeof val === 'number' ? val : parseFloat(val))
+          .filter(val => !isNaN(val));
+  
+        // Validate the descriptor
+        if (cleanDescriptor.length !== 128) {
+          throw new Error(`Invalid descriptor length: ${cleanDescriptor.length}`);
+        }
+  
+        // Create a clean JSON string
+        const descriptorString = JSON.stringify(cleanDescriptor);
+        
+        // Log for debugging
+        console.log('Clean descriptor string:', descriptorString);
+        console.log('Descriptor string length:', descriptorString.length);
+        
+        // Add to form data
+        formDataToSend.append('faceDescriptor', descriptorString);
+      }
+  
+      // Verify the data before sending
+      console.log('Verification of form data:');
+      for (let [key, value] of formDataToSend.entries()) {
+        if (key === 'faceDescriptor') {
+          console.log('Face descriptor in form:', value);
+          // Verify it can be parsed
+          try {
+            JSON.parse(value);
+            console.log('Face descriptor is valid JSON');
+          } catch (e) {
+            console.error('Invalid JSON in face descriptor:', e);
+            throw new Error('Face descriptor validation failed');
+          }
+        }
+      }
+  
       const apiResponse = await fetch('http://localhost:3000/api/register', {
         method: 'POST',
         body: formDataToSend,
       });
-
+  
+      const result = await apiResponse.json();
+      
       if (!apiResponse.ok) {
-        throw new Error(`HTTP error! status: ${apiResponse.status}`);
+        throw new Error(result.message || 'Registration failed');
       }
       
-      const result = await apiResponse.json();
       if (result.success) {
         setPopupMessage("Registration successful! Redirecting to login page...");
         setPopupColor("bg-blue-500");
-        setTimeout(() => {
-          navigate('/');
-        }, 3000);
+        // setTimeout(() => {
+        //   navigate('/');
+        // }, 3000);
       } else {
-        alert('Registration failed: ' + (result.message || 'Please try again.'));
+        throw new Error(result.message || 'Registration failed');
       }
     } catch (error) {
       console.error('Error submitting form:', error);
-      alert('An error occurred. Please try again.');
+      alert(`Registration failed: ${error.message}`);
     }
   };
 
@@ -620,7 +644,9 @@ const Registration = () => {
               
             </div>
             <div className="space-y-1">
-              <label htmlFor="emergencyName" className={labelClass}>Emergency Contact Name</label>
+              <label htmlFor="emergencyName" className={labelClass}>
+                Emergency Contact Name
+              </label>
               <input
                 type="text"
                 id="emergencyName"
