@@ -1,7 +1,10 @@
-import React, { useState } from 'react';
-import { Camera, Upload, Fingerprint, Save, ArrowLeft } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Camera, Upload, Save, ArrowLeft, X } from 'lucide-react';
+import * as faceapi from '@vladmandic/face-api';
 
 const Registration = () => {
+  // Form Data State
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -16,19 +19,92 @@ const Registration = () => {
     address: '',
     phoneNumber: '',
     email: '',
+    motherName: '',
+    fatherName:'',
+    motherOccupation: '',
+    fatherOccupation: '',
+    numberOfSiblings: '',
+    birthOrder: '',
     occupation: '',
     bloodType: '',
-    emergencyContact: {
-      name: '',
-      relationship: '',
-      phoneNumber: ''
-  },
-    
+    emergencyName: '',
+    emergencyRelationship: '',
+    emergencyPhone: ''
   });
 
+  // UI States
+  const [popupMessage, setPopupMessage] = useState("");
+  const [popupColor, setPopupColor] = useState("");
   const [profileImage, setProfileImage] = useState(null);
-  const [rightThumbprint, setRightThumbprint] = useState(null);
-  const [leftThumbprint, setLeftThumbprint] = useState(null);
+  const [isCameraModalOpen, setIsCameraModalOpen] = useState(false);
+  
+  // Face Recognition States
+  const [faceDescriptor, setFaceDescriptor] = useState(null);
+  const [modelsLoaded, setModelsLoaded] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  
+  const navigate = useNavigate();
+
+  // Load face-api models on component mount
+  useEffect(() => {
+    loadModels();
+  }, []);
+
+  const loadModels = async () => {
+    try {
+      setIsProcessing(true);
+      const modelPath = `${window.location.origin}/models`;
+      await Promise.all([
+        faceapi.nets.tinyFaceDetector.loadFromUri(modelPath),
+        faceapi.nets.faceLandmark68Net.loadFromUri(modelPath),
+        faceapi.nets.faceRecognitionNet.loadFromUri(modelPath)
+      ]);
+      setModelsLoaded(true);
+    } catch (error) {
+      console.error('Error loading face recognition models:', error);
+      alert('Failed to load face recognition models. Please try again.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const extractFaceDescriptor = async (imageElement) => {
+    if (!modelsLoaded) {
+      alert('Face recognition models are still loading. Please wait.');
+      return null;
+    }
+  
+    try {
+      setIsProcessing(true);
+      const detection = await faceapi
+        .detectSingleFace(imageElement, new faceapi.TinyFaceDetectorOptions())
+        .withFaceLandmarks()
+        .withFaceDescriptor();
+  
+      if (!detection) {
+        alert('No face detected in the image. Please try again with a clearer photo.');
+        return null;
+      }
+  
+      // Clean the descriptor data
+      const cleanDescriptor = Array.from(detection.descriptor)
+        .map(val => typeof val === 'number' ? val : parseFloat(val))
+        .filter(val => !isNaN(val));
+  
+      // Validate length
+      if (cleanDescriptor.length !== 128) {
+        throw new Error('Invalid face descriptor length');
+      }
+  
+      return cleanDescriptor;
+    } catch (error) {
+      console.error('Error extracting face descriptor:', error);
+      alert('Failed to process face recognition. Please try again.');
+      return null;
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -38,33 +114,214 @@ const Registration = () => {
     }));
   };
 
-  const handleProfileImageUpload = (e) => {
+  const handleProfileImageUpload = async (e) => {
     const file = e.target.files[0];
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setProfileImage(reader.result);
+      reader.onloadend = async () => {
+        const img = new Image();
+        img.src = reader.result;
+        await new Promise((resolve) => (img.onload = resolve));
+        
+        const descriptor = await extractFaceDescriptor(img);
+        if (descriptor) {
+          setFaceDescriptor(descriptor);
+          setProfileImage(reader.result);
+        }
       };
       reader.readAsDataURL(file);
     }
   };
 
-  const handleRightThumbprint = () => {
-    setRightThumbprint('/api/placeholder/150/150');
-  };
-
-  const handleLeftThumbprint = () => {
-    setLeftThumbprint('/api/placeholder/150/150');
-  };
-
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    console.log('Form submitted:', { 
-      formData, 
-      profileImage, 
-      rightThumbprint,
-      leftThumbprint 
-    });
+    
+    if (!profileImage || !faceDescriptor) {
+      alert('Please provide a profile picture with a clearly visible face.');
+      return;
+    }
+  
+    try {
+      const formDataToSend = new FormData();
+      
+      // Add basic form fields
+      Object.keys(formData).forEach(key => {
+        formDataToSend.append(key, formData[key]);
+      });
+      
+      // Handle profile image
+      if (typeof profileImage === 'string' && profileImage.startsWith('data:image')) {
+        const response = await fetch(profileImage);
+        const blob = await response.blob();
+        formDataToSend.append('profileImage', blob, 'profile.jpg');
+      }
+      
+      // Clean and validate face descriptor before sending
+      if (faceDescriptor) {
+        // Convert descriptor to a clean array of numbers
+        const cleanDescriptor = Array.from(faceDescriptor)
+          .map(val => typeof val === 'number' ? val : parseFloat(val))
+          .filter(val => !isNaN(val));
+  
+        // Validate descriptor length
+        if (cleanDescriptor.length !== 128) {
+          throw new Error(`Invalid descriptor length: ${cleanDescriptor.length}`);
+        }
+  
+        // Create a clean JSON string
+        const descriptorString = JSON.stringify(cleanDescriptor);
+        
+        // Verify JSON is valid
+        try {
+          JSON.parse(descriptorString); // Test parse
+          formDataToSend.append('faceDescriptor', descriptorString);
+          
+          // Log for debugging
+          console.log('Clean descriptor string:', descriptorString);
+          console.log('Descriptor string length:', descriptorString.length);
+        } catch (e) {
+          console.error('Invalid JSON format:', e);
+          throw new Error('Face descriptor validation failed');
+        }
+      }
+  
+      const apiResponse = await fetch('http://localhost:3000/api/register', {
+        method: 'POST',
+        body: formDataToSend,
+      });
+  
+      const result = await apiResponse.json();
+      
+      if (!apiResponse.ok) {
+        throw new Error(result.message || 'Registration failed');
+      }
+      
+      if (result.success) {
+        setPopupMessage("Registration successful! Redirecting to login page...");
+        setPopupColor("bg-blue-500");
+        setTimeout(() => {
+          navigate("/");
+        }, 3000);
+      } else {
+        throw new Error(result.message || 'Registration failed');
+      }
+    } catch (error) {
+      console.error('Error submitting form:', error);
+      alert(`Registration failed: ${error.message}`);
+    }
+  };
+
+  // Camera Modal Component
+  const CameraModal = ({ isOpen, onClose, onCapture }) => {
+    const videoRef = useRef(null);
+    const streamRef = useRef(null);
+
+    useEffect(() => {
+      if (isOpen) {
+        startCamera();
+      } else {
+        stopCamera();
+      }
+      return () => {
+        stopCamera();
+      };
+    }, [isOpen]);
+
+    const startCamera = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }
+        });
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+      } catch (err) {
+        console.error("Error accessing camera:", err);
+        alert("Unable to access camera. Please ensure you've granted camera permissions.");
+        onClose();
+      }
+    };
+
+    const stopCamera = () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
+    };
+
+    const handleCapture = async () => {
+      if (videoRef.current) {
+        const canvas = document.createElement('canvas');
+        canvas.width = videoRef.current.videoWidth;
+        canvas.height = videoRef.current.videoHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(videoRef.current, 0, 0);
+        const imageDataURL = canvas.toDataURL('image/jpeg');
+        
+        // Create an image element for face detection
+        const img = new Image();
+        img.src = imageDataURL;
+        await new Promise((resolve) => (img.onload = resolve));
+        
+        // Extract face descriptor
+        const descriptor = await extractFaceDescriptor(img);
+        if (descriptor) {
+          setFaceDescriptor(descriptor);
+          onCapture(imageDataURL);
+          onClose();
+        }
+      }
+    };
+
+    if (!isOpen) return null;
+
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
+        <div className="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4">
+          <div className="p-4 border-b border-gray-200 flex justify-between items-center">
+            <h3 className="text-lg font-semibold">Take a Picture</h3>
+            <button
+              onClick={onClose}
+              className="text-gray-500 hover:text-gray-700"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          
+          <div className="p-4">
+            <div className="relative bg-black rounded-lg overflow-hidden aspect-video">
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                className="w-full h-full object-cover"
+              />
+            </div>
+          </div>
+          
+          <div className="p-4 border-t border-gray-200 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+              disabled={isProcessing}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleCapture}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 text-sm"
+              disabled={isProcessing}
+            >
+              <Camera className="w-4 h-4" />
+              {isProcessing ? 'Processing...' : 'Capture Photo'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   const handleBack = () => {
@@ -88,14 +345,13 @@ const Registration = () => {
         </button>
 
         <div className="p-4 border-b border-gray-200 flex justify-center">
-          <h2 className="text-xl font-bold">Biometric Registration Form</h2>
+          <h2 className="text-xl font-bold">Face Recognition Registration Form</h2>
         </div>
 
         {/* Biometric Section */}
         <div className="p-4 border-b border-gray-200">
           <h3 className="text-base font-semibold mb-4">Biometric Data</h3>
           <div className="flex flex-wrap justify-center gap-8">
-            {/* Profile Picture Section */}
             <div className="flex flex-col items-center">
               <h4 className="text-xs font-medium text-gray-700 mb-2">Profile Picture</h4>
               <div className="w-32 h-32 rounded-full bg-gray-100 mb-3 overflow-hidden flex items-center justify-center">
@@ -105,62 +361,37 @@ const Registration = () => {
                   <Camera className="w-12 h-12 text-gray-400" />
                 )}
               </div>
-              <div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsCameraModalOpen(true)}
+                  className="flex items-center gap-1 bg-blue-500 text-white px-2 py-1 rounded-md hover:bg-blue-600 text-xs"
+                  disabled={isProcessing}
+                >
+                  <Camera className="w-3 h-3" />
+                  Take a Picture
+                </button>
                 <input
                   type="file"
                   accept="image/*"
                   onChange={handleProfileImageUpload}
                   className="hidden"
                   id="profile-upload"
+                  disabled={isProcessing}
                 />
                 <label
                   htmlFor="profile-upload"
-                  className="flex items-center gap-1 cursor-pointer bg-blue-500 text-white px-2 py-1 rounded-md hover:bg-blue-600 text-xs"
+                  className={`flex items-center gap-1 cursor-pointer ${
+                    isProcessing ? 'bg-gray-400' : 'bg-gray-500 hover:bg-gray-600'
+                  } text-white px-2 py-1 rounded-md text-xs`}
                 >
                   <Upload className="w-3 h-3" />
-                  Upload Photo
+                  Upload File
                 </label>
               </div>
-            </div>
-
-            {/* Right Thumbprint Section */}
-            <div className="flex flex-col items-center">
-              <h4 className="text-xs font-medium text-gray-700 mb-2">Right Thumbprint</h4>
-              <div className="w-32 h-32 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center mb-3">
-                {rightThumbprint ? (
-                  <img src={rightThumbprint} alt="Right Thumbprint" className="w-28 h-28" />
-                ) : (
-                  <Fingerprint className="w-12 h-12 text-gray-400" />
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={handleRightThumbprint}
-                className="flex items-center gap-1 text-xs bg-blue-500 text-white px-2 py-1 rounded-md hover:bg-blue-600"
-              >
-                <Fingerprint className="w-3 h-3" />
-                Capture Right Print
-              </button>
-            </div>
-
-            {/* Left Thumbprint Section */}
-            <div className="flex flex-col items-center">
-              <h4 className="text-xs font-medium text-gray-700 mb-2">Left Thumbprint</h4>
-              <div className="w-32 h-32 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center mb-3">
-                {leftThumbprint ? (
-                  <img src={leftThumbprint} alt="Left Thumbprint" className="w-28 h-28" />
-                ) : (
-                  <Fingerprint className="w-12 h-12 text-gray-400" />
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={handleLeftThumbprint}
-                className="flex items-center gap-1 text-xs bg-blue-500 text-white px-2 py-1 rounded-md hover:bg-blue-600"
-              >
-                <Fingerprint className="w-3 h-3" />
-                Capture Left Print
-              </button>
+              {isProcessing && (
+                <p className="text-sm text-blue-500 mt-2">Processing face recognition...</p>
+              )}
             </div>
           </div>
         </div>
@@ -408,8 +639,122 @@ const Registration = () => {
               />
               
             </div>
+
+        
+          </div>
+         
+        </div>
+        
+         {/* Family Info */}
+         <div className="p-4 border-b border-gray-200">
+          <h3 className="text-base font-semibold mb-4">Family Information</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {/* Mother's Information */}
             <div className="space-y-1">
-              <label htmlFor="emergencyName" className={labelClass}>Emergency Contact Name</label>
+              <label htmlFor="motherName" className={labelClass}>
+                Mother's Full Name
+              </label>
+              <input
+                type="text"
+                id="motherName"
+                name="motherName"
+                value={formData.motherName}
+                onChange={handleInputChange}
+                className={inputClass}
+                required
+              />
+            </div>
+            
+            <div className="space-y-1">
+              <label htmlFor="motherOccupation" className={labelClass}>
+                Mother's Occupation
+              </label>
+              <input
+                type="text"
+                id="motherOccupation"
+                name="motherOccupation"
+                value={formData.motherOccupation}
+                onChange={handleInputChange}
+                className={inputClass}
+                required
+              />
+            </div>
+
+            {/* Father's Information */}
+            <div className="space-y-1">
+              <label htmlFor="fatherName" className={labelClass}>
+                Father's Full Name
+              </label>
+              <input
+                type="text"
+                id="fatherName"
+                name="fatherName"
+                value={formData.fatherName}
+                onChange={handleInputChange}
+                className={inputClass}
+                required
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label htmlFor="fatherOccupation" className={labelClass}>
+                Father's Occupation
+              </label>
+              <input
+                type="text"
+                id="fatherOccupation"
+                name="fatherOccupation"
+                value={formData.fatherOccupation}
+                onChange={handleInputChange}
+                className={inputClass}
+                required
+              />
+            </div>
+
+            {/* Sibling Information */}
+            <div className="space-y-1">
+              <label htmlFor="numberOfSiblings" className={labelClass}>
+                Number of Siblings
+              </label>
+              <input
+                type="number"
+                id="numberOfSiblings"
+                name="numberOfSiblings"
+                value={formData.numberOfSiblings}
+                onChange={handleInputChange}
+                min="0"
+                className={inputClass}
+                required
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label htmlFor="birthOrder" className={labelClass}>
+                Birth Order
+              </label>
+              <input
+                type="number"
+                id="birthOrder"
+                name="birthOrder"
+                value={formData.birthOrder}
+                onChange={handleInputChange}
+                min="1"
+                className={inputClass}
+                placeholder="e.g., 1 for eldest"
+                required
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Emergency Contact */}
+        <div className="p-4 border-b border-gray-200">
+          <h3 className="text-base font-semibold mb-4">Emergency Contact Details</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="space-y-1">
+              <label htmlFor="emergencyName" className={labelClass}>
+                Emergency Contact Name
+              </label>
               <input
                 type="text"
                 id="emergencyName"
@@ -455,12 +800,8 @@ const Registration = () => {
                 required
               />
             </div>
-          
           </div>
-          
-          
         </div>
-
         
 
         <div className="p-4 border-t border-gray-200 flex justify-end">
@@ -473,7 +814,25 @@ const Registration = () => {
           </button>
         </div>
       </div>
+
+      {popupMessage && (
+      <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+        <div className={`${popupColor} rounded-lg shadow-lg p-8 w-96 text-center text-white transition-all duration-300`}>
+          <p className="text-2xl font-bold mb-2">{popupMessage}</p>
+        </div>
+      </div>
+    )}
+
+      {/* Camera Modal */}
+      <CameraModal
+        isOpen={isCameraModalOpen}
+        onClose={() => setIsCameraModalOpen(false)}
+        onCapture={(imageDataURL) => setProfileImage(imageDataURL)}
+      />
     </form>
+
+      
+    
   );
 };
 
