@@ -1,6 +1,6 @@
 // backend.js
-import express from 'express';
-import multer from 'multer';
+import express from 'express'; //setuip express server
+import multer from 'multer'; //for file uploads
 import path from 'path';
 import { fileURLToPath } from 'url';
 import pkg from 'pg';
@@ -40,7 +40,7 @@ if (!fs.existsSync(uploadDir)){
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-// Multer configuration for file uploads
+// file upload configuration multer
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     cb(null, 'uploads/');
@@ -70,63 +70,61 @@ const upload = multer({
   }
 });
 
-// Improved face descriptor distance calculation
-function normalizedEuclideanDistance(descriptor1, descriptor2) {
-  try {
-    console.log('Input descriptors:', {
-      desc1Length: descriptor1.length,
-      desc2Length: descriptor2.length,
-      desc1Sample: descriptor1.slice(0, 3),
-      desc2Sample: descriptor2.slice(0, 3)
-    });
+//! not used
+// function normalizedEuclideanDistance(descriptor1, descriptor2) {
+//   try {
+//     console.log('Input descriptors:', {
+//       desc1Length: descriptor1.length,
+//       desc2Length: descriptor2.length,
+//       desc1Sample: descriptor1.slice(0, 3),
+//       desc2Sample: descriptor2.slice(0, 3)
+//     });
 
-    // L2 normalization of descriptors
-    const norm1 = Math.sqrt(descriptor1.reduce((sum, val) => sum + val * val, 0));
-    const norm2 = Math.sqrt(descriptor2.reduce((sum, val) => sum + val * val, 0));
+//     // L2 normalization of descriptors
+//     const norm1 = Math.sqrt(descriptor1.reduce((sum, val) => sum + val * val, 0));
+//     const norm2 = Math.sqrt(descriptor2.reduce((sum, val) => sum + val * val, 0));
     
-    console.log('Norms:', { norm1, norm2 });
+//     console.log('Norms:', { norm1, norm2 });
 
-    if (norm1 === 0 || norm2 === 0) {
-      console.error('Zero norm detected!');
-      return Infinity;
-    }
+//     if (norm1 === 0 || norm2 === 0) {
+//       console.error('Zero norm detected!');
+//       return Infinity;
+//     }
 
-    const normalizedDesc1 = descriptor1.map(val => val / norm1);
-    const normalizedDesc2 = descriptor2.map(val => val / norm2);
+//     const normalizedDesc1 = descriptor1.map(val => val / norm1);
+//     const normalizedDesc2 = descriptor2.map(val => val / norm2);
 
-    const distance = Math.sqrt(
-      normalizedDesc1.reduce((sum, val, idx) => {
-        const diff = val - normalizedDesc2[idx];
-        return sum + diff * diff;
-      }, 0)
-    );
+//     const distance = Math.sqrt(
+//       normalizedDesc1.reduce((sum, val, idx) => {
+//         const diff = val - normalizedDesc2[idx];
+//         return sum + diff * diff;
+//       }, 0)
+//     );
 
-    console.log('Calculated distance:', distance);
-    return distance;
+//     console.log('Calculated distance:', distance);
+//     return distance;
 
-  } catch (error) {
-    console.error('Error in distance calculation:', error);
-    console.error('Descriptor1:', descriptor1);
-    console.error('Descriptor2:', descriptor2);
-    return Infinity;
-  }
-}
-
-
+//   } catch (error) {
+//     console.error('Error in distance calculation:', error);
+//     console.error('Descriptor1:', descriptor1);
+//     console.error('Descriptor2:', descriptor2);
+//     return Infinity;
+//   }
+// }
 
 
-// Registration endpoint
+// Registration 
 app.post('/api/register', upload.single('profileImage'), async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    // Parse and validate face descriptor
+    // parse and validate face descriptions
     let faceDescriptor;
     try {
       const descriptorString = req.body.faceDescriptor;
       
-      // Log the raw input for debugging
+      //!remove this debugging
       console.log('Raw descriptor input:', descriptorString);
       
       // Validate input type
@@ -134,9 +132,11 @@ app.post('/api/register', upload.single('profileImage'), async (req, res) => {
         throw new Error('Face descriptor must be a string');
       }
       
-      // Parse the JSON string
+      // parse the JSON String
       const parsedDescriptor = JSON.parse(descriptorString);
       
+
+      //! error trapping
       // Validate array structure
       if (!Array.isArray(parsedDescriptor) || parsedDescriptor.length !== 128) {
         throw new Error(`Invalid face descriptor format: Expected array of length 128, got ${parsedDescriptor?.length}`);
@@ -161,15 +161,17 @@ app.post('/api/register', upload.single('profileImage'), async (req, res) => {
       throw new Error(`Failed to parse face descriptor: ${error.message}`);
     }
 
-    // Insert into database with validated descriptor
+    //insert into the db with face validations
     const registrationResult = await client.query(
       `INSERT INTO REGISTRATION (
         REGIS_FIRST_NAME, REGIS_LAST_NAME, REGIS_MIDDLE_NAME, REGIS_DATE_OF_BIRTH,
         REGIS_NATIONALITY, REGIS_MARITAL_STATUS, REGIS_PLACE_OF_BIRTH, REGIS_SEX,
         REGIS_GENDER, REGIS_RELIGION, REGIS_ADDRESS, REGIS_PHONE_NUMBER,
         REGIS_EMAIL, REGIS_OCCUPATION, REGIS_BLOOD_TYPE, REGIS_PROFILE_IMAGE_PATH,
-        face_descriptor
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+        face_descriptor, REGIS_MOTHER_NAME, REGIS_FATHER_NAME, 
+        REGIS_MOTHER_OCCUPATION, REGIS_FATHER_OCCUPATION, 
+        REGIS_NUMBER_OF_SIBLINGS, REGIS_BIRTH_ORDER
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
       RETURNING REGIS_ID`,
       [
         req.body.firstName,
@@ -188,14 +190,20 @@ app.post('/api/register', upload.single('profileImage'), async (req, res) => {
         req.body.occupation,
         req.body.bloodType,
         req.file ? req.file.path : null,
-        JSON.stringify(faceDescriptor) // Use the validated descriptor
+        JSON.stringify(faceDescriptor),
+        req.body.motherName,
+        req.body.fatherName,
+        req.body.motherOccupation,
+        req.body.fatherOccupation,
+        req.body.numberOfSiblings,
+        req.body.birthOrder // Use the validated descriptor
       ]
     );
 
-    // Rest of the registration code...
+    // rest of the registration code
     const registrationId = registrationResult.rows[0].regis_id;
 
-    // Insert emergency contact
+    //insert emergecny contact
     await client.query(
       `INSERT INTO EMERGENCY_CONTACT (
         REGIS_ID, EMER_NAME, EMER_RELATIONSHIP, EMER_PHONE_NUMBER
@@ -208,6 +216,7 @@ app.post('/api/register', upload.single('profileImage'), async (req, res) => {
       ]
     );
 
+    //Error trappings for Registration fails
     await client.query('COMMIT');
     res.json({ 
       success: true, 
@@ -233,7 +242,8 @@ app.post('/api/register', upload.single('profileImage'), async (req, res) => {
   }
 });
 
-// Face Recognition endpoint
+//face recognition end point
+// calculation for the face discriptions for accuracy
 function calculateFaceSimilarity(desc1, desc2) {
   if (!Array.isArray(desc1) || !Array.isArray(desc2) || desc1.length !== desc2.length) {
     console.error('Invalid descriptor format or length mismatch');
@@ -427,8 +437,14 @@ app.put('/api/user/:id', upload.single('profileImage'), async (req, res) => {
          REGIS_LAST_NAME = COALESCE($2, REGIS_LAST_NAME),
          REGIS_MIDDLE_NAME = COALESCE($3, REGIS_MIDDLE_NAME),
          REGIS_PROFILE_IMAGE_PATH = COALESCE($4, REGIS_PROFILE_IMAGE_PATH),
-         face_descriptor = COALESCE($5, face_descriptor)
-       WHERE REGIS_ID = $6
+         face_descriptor = COALESCE($5, face_descriptor),
+         REGIS_MOTHER_NAME = COALESCE($6, REGIS_MOTHER_NAME),
+         REGIS_FATHER_NAME = COALESCE($7, REGIS_FATHER_NAME),
+         REGIS_MOTHER_OCCUPATION = COALESCE($8, REGIS_MOTHER_OCCUPATION),
+         REGIS_FATHER_OCCUPATION = COALESCE($9, REGIS_FATHER_OCCUPATION),
+         REGIS_NUMBER_OF_SIBLINGS = COALESCE($10, REGIS_NUMBER_OF_SIBLINGS),
+         REGIS_BIRTH_ORDER = COALESCE($11, REGIS_BIRTH_ORDER)
+       WHERE REGIS_ID = $12
        RETURNING *`,
       [
         updates.firstName,
@@ -436,6 +452,12 @@ app.put('/api/user/:id', upload.single('profileImage'), async (req, res) => {
         updates.middleName,
         updates.REGIS_PROFILE_IMAGE_PATH,
         updates.faceDescriptor ? JSON.stringify(updates.faceDescriptor) : null,
+        updates.motherName,
+        updates.fatherName,
+        updates.motherOccupation,
+        updates.fatherOccupation,
+        updates.numberOfSiblings,
+        updates.birthOrder,
         id
       ]
     );
@@ -522,7 +544,7 @@ CREATE TABLE REGISTRATION (
     REGIS_BLOOD_TYPE VARCHAR(5) NOT NULL,
     REGIS_PROFILE_IMAGE_PATH VARCHAR(255),
     REGIS_CREATED_AT TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    face_descriptor
+    face_descriptor text
 );
 
 CREATE TABLE EMERGENCY_CONTACT (

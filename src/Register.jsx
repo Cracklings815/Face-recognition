@@ -19,6 +19,12 @@ const Registration = () => {
     address: '',
     phoneNumber: '',
     email: '',
+    motherName: '',
+    fatherName:'',
+    motherOccupation: '',
+    fatherOccupation: '',
+    numberOfSiblings: '',
+    birthOrder: '',
     occupation: '',
     bloodType: '',
     emergencyName: '',
@@ -633,7 +639,119 @@ const Registration = () => {
               />
               
             </div>
+
+        
+          </div>
+         
+        </div>
+        
+         {/* Family Info */}
+         <div className="p-4 border-b border-gray-200">
+          <h3 className="text-base font-semibold mb-4">Family Information</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {/* Mother's Information */}
             <div className="space-y-1">
+              <label htmlFor="motherName" className={labelClass}>
+                Mother's Full Name
+              </label>
+              <input
+                type="text"
+                id="motherName"
+                name="motherName"
+                value={formData.motherName}
+                onChange={handleInputChange}
+                className={inputClass}
+                required
+              />
+            </div>
+            
+            <div className="space-y-1">
+              <label htmlFor="motherOccupation" className={labelClass}>
+                Mother's Occupation
+              </label>
+              <input
+                type="text"
+                id="motherOccupation"
+                name="motherOccupation"
+                value={formData.motherOccupation}
+                onChange={handleInputChange}
+                className={inputClass}
+                required
+              />
+            </div>
+
+            {/* Father's Information */}
+            <div className="space-y-1">
+              <label htmlFor="fatherName" className={labelClass}>
+                Father's Full Name
+              </label>
+              <input
+                type="text"
+                id="fatherName"
+                name="fatherName"
+                value={formData.fatherName}
+                onChange={handleInputChange}
+                className={inputClass}
+                required
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label htmlFor="fatherOccupation" className={labelClass}>
+                Father's Occupation
+              </label>
+              <input
+                type="text"
+                id="fatherOccupation"
+                name="fatherOccupation"
+                value={formData.fatherOccupation}
+                onChange={handleInputChange}
+                className={inputClass}
+                required
+              />
+            </div>
+
+            {/* Sibling Information */}
+            <div className="space-y-1">
+              <label htmlFor="numberOfSiblings" className={labelClass}>
+                Number of Siblings
+              </label>
+              <input
+                type="number"
+                id="numberOfSiblings"
+                name="numberOfSiblings"
+                value={formData.numberOfSiblings}
+                onChange={handleInputChange}
+                min="0"
+                className={inputClass}
+                required
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label htmlFor="birthOrder" className={labelClass}>
+                Birth Order
+              </label>
+              <input
+                type="number"
+                id="birthOrder"
+                name="birthOrder"
+                value={formData.birthOrder}
+                onChange={handleInputChange}
+                min="1"
+                className={inputClass}
+                placeholder="e.g., 1 for eldest"
+                required
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Emergency Contact */}
+        <div className="p-4 border-b border-gray-200">
+          <h3 className="text-base font-semibold mb-4">Emergency Contact Details</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="space-y-1">
               <label htmlFor="emergencyName" className={labelClass}>
                 Emergency Contact Name
               </label>
@@ -682,12 +800,8 @@ const Registration = () => {
                 required
               />
             </div>
-          
           </div>
-          
-          
         </div>
-
         
 
         <div className="p-4 border-t border-gray-200 flex justify-end">

@@ -1,4 +1,3 @@
-// study
 import React, { useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -35,6 +34,7 @@ const ProfileDisplay = () => {
 
   return (
     <div className="max-w-7xl mx-auto p-4 space-y-6">
+      {/* Basic Info Card */}
       <div className="bg-white shadow rounded-lg mb-6">
         <div className="p-6 flex items-start space-x-6">
           <div className="flex-shrink-0">
@@ -66,11 +66,11 @@ const ProfileDisplay = () => {
               <p className="text-gray-600">Phone Number: {userData?.regis_phone_number}</p>
               <p className="text-gray-600">Email: {userData?.regis_email}</p>
             </div>
-          
           </div>
         </div>
       </div>
 
+      {/* Personal Details */}
       <div className="bg-white shadow rounded-lg p-6">
         <h3 className="text-lg font-semibold mb-4">Personal Details</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -84,10 +84,35 @@ const ProfileDisplay = () => {
           <DisplayField label="Religion" value={userData?.regis_religion} />
           <DisplayField label="Blood Type" value={userData?.regis_blood_type} />
           <DisplayField label="Address" value={userData?.regis_address} />
-          
-          <div className="col-span-full mt-4">
-            <h4 className="text-md font-semibold mb-3">Emergency Contact Information</h4>
+        </div>
+      </div>
+
+      {/* Family Information */}
+      <div className="bg-white shadow rounded-lg p-6">
+        <h3 className="text-lg font-semibold mb-4">Family Information</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Parents Information */}
+          <div className="col-span-full mt-2">
+            <h4 className="text-md font-semibold mb-3">Parents Information</h4>
           </div>
+          <DisplayField label="Mother's Name" value={userData?.regis_mother_name} />
+          <DisplayField label="Mother's Occupation" value={userData?.regis_mother_occupation} />
+          <DisplayField label="Father's Name" value={userData?.regis_father_name} />
+          <DisplayField label="Father's Occupation" value={userData?.regis_father_occupation} />
+
+          {/* Siblings Information */}
+          <div className="col-span-full mt-4">
+            <h4 className="text-md font-semibold mb-3">Siblings Information</h4>
+          </div>
+          <DisplayField label="Number of Siblings" value={userData?.regis_number_of_siblings} />
+          <DisplayField label="Birth Order" value={userData?.regis_birth_order} />
+        </div>
+      </div>
+
+      {/* Emergency Contact */}
+      <div className="bg-white shadow rounded-lg p-6">
+        <h3 className="text-lg font-semibold mb-4">Emergency Contact</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <DisplayField label="Emergency Contact Name" value={userData?.emer_name} />
           <DisplayField label="Relationship" value={userData?.emer_relationship} />
           <DisplayField label="Emergency Contact Phone" value={userData?.emer_phone_number} />

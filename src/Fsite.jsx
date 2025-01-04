@@ -1,15 +1,16 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Camera } from "lucide-react";
-import * as faceapi from '@vladmandic/face-api';
+import * as faceapi from '@vladmandic/face-api'; //face api for face detection and recognition
 import { Link, useNavigate } from 'react-router-dom';
 // study
 const FaceRecognition = () => {
   const navigate = useNavigate();
-  const videoRef = useRef(null);
-  const canvasRef = useRef(null);
-  const modelsLoaded = useRef(false);
-  const detectionIntervalRef = useRef(null);
+  const videoRef = useRef(null); //references video element for camera feed
+  const canvasRef = useRef(null); //for drawing face detection overlays
+  const modelsLoaded = useRef(false); //track if ang models kay loaded
+  const detectionIntervalRef = useRef(null); //for detection timer
   
+  //state managements
   const [status, setStatus] = useState("Initializing face detection...");
   const [isPopupVisible, setPopupVisible] = useState(false);
   const [popupMessage, setPopupMessage] = useState("");
@@ -17,8 +18,10 @@ const FaceRecognition = () => {
   const [cameraError, setCameraError] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [debugInfo, setDebugInfo] = useState("");
-  const [failedAttempts, setFailedAttempts] = useState(5);
+  const [failedAttempts, setFailedAttempts] = useState(5); //track failed attempts
 
+
+  //load essential face recog models
   useEffect(() => {
     const loadModels = async () => {
       if (modelsLoaded.current) {
@@ -26,9 +29,8 @@ const FaceRecognition = () => {
         return;
       }
       try {
-        setStatus("Loading face recognition models...");
+        setStatus("Loading models");
         
-
         const modelPath = `${window.location.origin}/models`;
         await faceapi.nets.tinyFaceDetector.loadFromUri(modelPath);
         await faceapi.nets.faceLandmark68Net.loadFromUri(modelPath);
@@ -44,6 +46,7 @@ const FaceRecognition = () => {
       }
     };
 
+    //camera setups
     const startVideo = async () => {
       if (videoRef.current && videoRef.current.srcObject) {
         const tracks = videoRef.current.srcObject.getTracks();
@@ -76,10 +79,12 @@ const FaceRecognition = () => {
       }
     };
 
+
+    //checks quality of the face 
     const checkFaceQuality = (detection) => {
       if (!videoRef.current) return false;
 
-      // More stringent quality checks
+      // quality checks
       if (detection.detection.score < 0.6) {
         setStatus("Please ensure your face is well-lit and clear");
         return false;
@@ -109,6 +114,7 @@ const FaceRecognition = () => {
       return true;
     };
 
+    //to detect face 
     const startFaceDetection = async () => {
       if (!videoRef.current || !canvasRef.current) return;
 
@@ -134,8 +140,8 @@ const FaceRecognition = () => {
             scoreThreshold: 0.5
           });
 
-          // Take multiple samples for better accuracy
-          const sampleCount = 5;
+          // takes 5 samples for accuracy
+          const sampleCount = 5; 
           let successfulSamples = 0;
           let accumulatedDescriptor = new Float32Array(128).fill(0);
 
@@ -176,12 +182,13 @@ const FaceRecognition = () => {
             console.log('Descriptor length:', Array.from(averageDescriptor).length);
             console.log('First few values:', Array.from(averageDescriptor).slice(0, 5));
 
+            // send to backend /api/recognize for recognition
             try {
               const response = await fetch('/api/recognize', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
-                  faceDescriptor: Array.from(averageDescriptor),
+                  faceDescriptor: Array.from(averageDescriptor), //process face data and checks if the user exist in the db
                   detectionScore: successfulSamples / sampleCount,
                 })
               });
@@ -196,13 +203,14 @@ const FaceRecognition = () => {
                 setPopupMessage("Face recognized! Redirecting...");
                 setPopupColor("bg-green-500");
                 setPopupVisible(true);
-                
+
+                //redirects to the main page if successfull recognition
                 setTimeout(() => {
                   navigate('/success', { state: 
                     { userData: result.userData
                       
                      } });
-                }, 1500);
+                }, 1500); //run every 1.5 sec
               } else {
                 setFailedAttempts(prev => {
                   const newCount = prev + 1;
@@ -239,6 +247,8 @@ const FaceRecognition = () => {
     };
   }, [failedAttempts, navigate]);
 
+
+  //Ui components
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 p-4">
       <div className="bg-white shadow-md rounded-lg p-6 max-w-md w-full">
