@@ -21,31 +21,38 @@ A Python-based face detection and recognition system using **OpenCV** and the **
    ```bash
    git clone https://github.com/Cracklings815/Face-recognition.git
    cd Face-recognition
+   ```
 2. Install the dependencies:
 ```bash
 pip install -r requirements.txt
+`````
 
 3. Run the face recognition script:
+```bash
+   python main.py
+`````
 
-##Usage
+## Usage
 
-- **Place the images of people you want to recognize inside the images/ folder.
-- **Run the program to start webcam-based face detection and recognition.
-- **Add new images to expand your recognition dataset.
+- **Place the images of people you want to recognize inside the images/** folder.  
+- **Run the program** to start webcam-based face detection and recognition.  
+- **Add new images** to expand your recognition dataset.  
 
-##Project Structure
+## Project Structure
+```bash
 Face-recognition/
 │── images/           # Folder for training images
 │── main.py           # Entry point for running recognition
 │── requirements.txt  # Python dependencies
 │── README.md         # Project documentation
+`````
 
 
-##Dependencies
+## Dependencies
 
-- **OpenCV
-- **face_recognition
-- **numpy
+- **OpenCV**  
+- **face_recognition**  
+- **numpy**y
 
 ##License
 This project is licensed under the MIT License. See the LICENSE file for details.
