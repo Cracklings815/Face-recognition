@@ -1,5 +1,10 @@
 # Face Recognition System
 
+![Python](https://img.shields.io/badge/python-3.7%2B-blue)
+![OpenCV](https://img.shields.io/badge/OpenCV-enabled-green)
+![License](https://img.shields.io/badge/license-MIT-lightgrey)
+![Stars](https://img.shields.io/github/stars/Cracklings815/Face-recognition?style=social)
+
 A Python-based face detection and recognition system using **OpenCV** and the **face_recognition** library.
 
 ## Features
@@ -54,5 +59,5 @@ Face-recognition/
 - **face_recognition**  
 - **numpy**y
 
-##License
-This project is licensed under the MIT License. See the LICENSE file for details.
+## License
+This project is licensed under the [MIT License](https://opensource.org/licenses/MIT). See the LICENSE file for details.
